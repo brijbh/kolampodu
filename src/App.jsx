@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import Header from "./components/Header";
 import KolamCanvas from "./components/KolamCanvas";
 import Controls from "./components/Controls";
 
 import { createKolamAnimation } from "./logic/animation";
-import { buildKolamPath } from "./logic/kolam";
+import { buildKolamSegments } from "./logic/kolam";
 
 import "./styles/base.css";
 import "./styles/layout.css";
@@ -45,7 +45,7 @@ export default function App() {
   const shape = SHAPES.find(({ id }) => id === selectedShape) ?? SHAPES[3];
   const pattern = shape.pattern;
   const gridLabel = pattern.join(" - ");
-  const path = buildKolamPath(pattern);
+  const segments = useMemo(() => buildKolamSegments(pattern), [pattern]);
   const animationRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -132,7 +132,7 @@ export default function App() {
         </section>
         <KolamCanvas
           pattern={pattern}
-          path={path}
+          segments={segments}
           progress={progress}
           showHint={!hasAnimationStarted}
         />

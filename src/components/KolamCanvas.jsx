@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { generateDotGrid } from "../logic/grid";
-import { getStrokeDrawStyles } from "../logic/animation";
+import { getSegmentProgresses, getStrokeDrawStyles } from "../logic/animation";
 
-export default function KolamCanvas({ pattern, path, progress, showHint }) {
+export default function KolamCanvas({ pattern, segments, progress, showHint }) {
   const dots = generateDotGrid(pattern);
-  const pathRef = useRef(null);
-  const [pathLength, setPathLength] = useState(0);
+  const pathRefs = useRef([]);
+  const [pathLengths, setPathLengths] = useState([]);
   const padding = 36;
   const minX = Math.min(...dots.map(({ x }) => x));
   const maxX = Math.max(...dots.map(({ x }) => x));
@@ -14,15 +14,13 @@ export default function KolamCanvas({ pattern, path, progress, showHint }) {
   const maxY = Math.max(...dots.map(({ y }) => y));
   const width = maxX - minX + padding * 2;
   const height = maxY - minY + padding * 2;
-  const strokeDraw = getStrokeDrawStyles(pathLength, progress);
+  const segmentProgresses = getSegmentProgresses(segments.length, progress);
 
   useLayoutEffect(() => {
-    if (!pathRef.current) {
-      return;
-    }
-
-    setPathLength(pathRef.current.getTotalLength());
-  }, [path]);
+    setPathLengths(
+      pathRefs.current.map((pathRef) => pathRef?.getTotalLength() ?? 0),
+    );
+  }, [segments]);
 
   return (
     <div className="canvas">
@@ -44,13 +42,25 @@ export default function KolamCanvas({ pattern, path, progress, showHint }) {
             />
           ))}
 
-          <path
-            ref={pathRef}
-            d={path}
-            className="kolam-line"
-            strokeDasharray={strokeDraw.strokeDasharray}
-            strokeDashoffset={strokeDraw.strokeDashoffset}
-          />
+          {segments.map((segment, index) => {
+            const strokeDraw = getStrokeDrawStyles(
+              pathLengths[index] ?? 0,
+              segmentProgresses[index] ?? 0,
+            );
+
+            return (
+              <path
+                key={segment}
+                ref={(pathRef) => {
+                  pathRefs.current[index] = pathRef;
+                }}
+                d={segment}
+                className="kolam-line"
+                strokeDasharray={strokeDraw.strokeDasharray}
+                strokeDashoffset={strokeDraw.strokeDashoffset}
+              />
+            );
+          })}
         </g>
       </svg>
     </div>

@@ -1,5 +1,8 @@
-const DEFAULT_DURATION = 4200;
+const DEFAULT_DURATION = 4600;
 const DEFAULT_START_DELAY = 200;
+const DEFAULT_SEGMENT_GAP = 125;
+const DEFAULT_END_HOLD = 300;
+const SPEED_VARIATION = [1, 0.88, 1.08, 0.94, 1.04];
 
 const clampProgress = (value) => Math.min(1, Math.max(0, value));
 const easeInOut = (value) => {
@@ -17,6 +20,43 @@ export function getStrokeDrawStyles(pathLength, progress) {
     strokeDasharray: length,
     strokeDashoffset: length * (1 - safeProgress),
   };
+}
+
+function getSegmentTimings(segmentCount, {
+  duration = DEFAULT_DURATION,
+  segmentGap = DEFAULT_SEGMENT_GAP,
+  endHold = DEFAULT_END_HOLD,
+} = {}) {
+  const count = Math.max(1, segmentCount);
+  const totalDuration = Math.max(1, duration);
+  const totalGap = Math.max(0, count - 1) * Math.max(0, segmentGap);
+  const drawableDuration = Math.max(1, totalDuration - totalGap - Math.max(0, endHold));
+  const weights = Array.from(
+    { length: count },
+    (_, index) => SPEED_VARIATION[index % SPEED_VARIATION.length],
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let cursor = 0;
+
+  return weights.map((weight, index) => {
+    const segmentDuration = drawableDuration * (weight / totalWeight);
+    const timing = {
+      start: cursor,
+      end: cursor + segmentDuration,
+    };
+
+    cursor = timing.end + (index === count - 1 ? 0 : Math.max(0, segmentGap));
+    return timing;
+  });
+}
+
+export function getSegmentProgresses(segmentCount, progress, timingOptions) {
+  const elapsed = clampProgress(progress) * Math.max(1, timingOptions?.duration ?? DEFAULT_DURATION);
+
+  return getSegmentTimings(segmentCount, timingOptions).map(({ start, end }) => {
+    const segmentDuration = Math.max(1, end - start);
+    return easeInOut((elapsed - start) / segmentDuration);
+  });
 }
 
 export function createKolamAnimation({
@@ -60,7 +100,7 @@ export function createKolamAnimation({
     const elapsed = elapsedBeforeStart + Math.max(0, time - startedAt);
     const rawProgress = clampProgress(elapsed / totalDuration);
 
-    setProgress(easeInOut(rawProgress));
+    setProgress(rawProgress);
 
     if (rawProgress < 1) {
       frameId = requestFrame(tick);
@@ -102,7 +142,7 @@ export function createKolamAnimation({
     }
 
     elapsedBeforeStart += Math.max(0, now() - startedAt);
-    setProgress(easeInOut(elapsedBeforeStart / totalDuration));
+    setProgress(elapsedBeforeStart / totalDuration);
     running = false;
     stopFrame();
     return progress;
