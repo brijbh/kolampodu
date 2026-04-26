@@ -1,35 +1,148 @@
-import { getDot } from "./grid";
+import { DOT_SPACING, generateDotGrid } from "./grid";
 
-export function buildKolamSegments(pattern) {
-  const d1 = getDot(pattern, 1, 1);
-  const d2 = getDot(pattern, 1, 2);
-  const d3 = getDot(pattern, 2, 1);
+const CELL_CURVE = DOT_SPACING * 0.24;
+const OUTER_MARGIN = DOT_SPACING * 0.58;
+
+function getRowDots(pattern, rowIndex) {
+  const max = Math.max(...pattern);
+  const offset = (max - pattern[rowIndex]) / 2;
+
+  return Array.from({ length: pattern[rowIndex] }, (_, colIndex) => ({
+    x: (colIndex + offset) * DOT_SPACING,
+    y: rowIndex * DOT_SPACING,
+  }));
+}
+
+function getCellRows(pattern) {
+  return pattern.slice(0, -1).map((count, rowIndex) => {
+    const nextCount = pattern[rowIndex + 1];
+    const sourceRow = nextCount <= count
+      ? getRowDots(pattern, rowIndex + 1)
+      : getRowDots(pattern, rowIndex);
+
+    return sourceRow.map((dot) => ({
+      x: dot.x,
+      y: (rowIndex + 0.5) * DOT_SPACING,
+      row: rowIndex,
+    }));
+  }).filter((row) => row.length > 0);
+}
+
+function getControlPoint(start, end, index) {
+  const horizontal = Math.abs(start.y - end.y) < 1;
+  const direction = index % 2 === 0 ? 1 : -1;
+
+  if (horizontal) {
+    return {
+      x: (start.x + end.x) / 2,
+      y: start.y + direction * CELL_CURVE,
+    };
+  }
+
+  const outward = end.x < start.x ? -1 : 1;
+
+  return {
+    x: (start.x + end.x) / 2 + outward * CELL_CURVE,
+    y: (start.y + end.y) / 2,
+  };
+}
+
+function toSegment(start, end, index, idPrefix = "cell") {
+  return {
+    id: `${idPrefix}-${index}`,
+    start,
+    control: getControlPoint(start, end, index),
+    end,
+  };
+}
+
+function getCellRoute(pattern) {
+  const rows = getCellRows(pattern);
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  return rows.flatMap((row, rowIndex) => {
+    const orderedRow = [...row].sort((a, b) => a.x - b.x);
+    return rowIndex % 2 === 0 ? orderedRow : orderedRow.reverse();
+  });
+}
+
+function getOuterLoopSegments(route, dots) {
+  if (route.length < 2) {
+    return [];
+  }
+
+  const minX = Math.min(...dots.map(({ x }) => x));
+  const maxY = Math.max(...dots.map(({ y }) => y));
+  const first = route[0];
+  const last = route[route.length - 1];
+  const lowerLeft = {
+    x: minX - OUTER_MARGIN,
+    y: maxY + OUTER_MARGIN,
+  };
+  const upperLeft = {
+    x: minX - OUTER_MARGIN,
+    y: first.y - OUTER_MARGIN * 1.2,
+  };
 
   return [
     {
-      id: "first-curve",
-      start: d1,
-      control: { x: d1.x + 30, y: d1.y - 30 },
-      end: d2,
+      id: "outer-lower",
+      start: last,
+      control: {
+        x: (last.x + lowerLeft.x) / 2,
+        y: lowerLeft.y,
+      },
+      end: lowerLeft,
     },
     {
-      id: "second-curve",
-      start: d2,
-      control: { x: d2.x + 30, y: d2.y + 30 },
-      end: d3,
+      id: "outer-left",
+      start: lowerLeft,
+      control: {
+        x: lowerLeft.x - CELL_CURVE,
+        y: (lowerLeft.y + upperLeft.y) / 2,
+      },
+      end: upperLeft,
     },
     {
-      id: "third-curve",
-      start: d3,
-      control: { x: d3.x - 30, y: d3.y + 30 },
-      end: d1,
+      id: "outer-return",
+      start: upperLeft,
+      control: {
+        x: upperLeft.x,
+        y: first.y + CELL_CURVE,
+      },
+      end: first,
     },
+  ];
+}
+
+export function buildKolamSegments(pattern) {
+  const route = getCellRoute(pattern);
+  const dots = generateDotGrid(pattern);
+
+  if (route.length < 2) {
+    return [];
+  }
+
+  const cellSegments = route
+    .slice(0, -1)
+    .map((point, index) => toSegment(point, route[index + 1], index));
+
+  return [
+    ...cellSegments,
+    ...getOuterLoopSegments(route, dots),
   ];
 }
 
 export function buildKolamPath(pattern) {
   const segments = buildKolamSegments(pattern);
   const [firstSegment, ...remainingSegments] = segments;
+
+  if (!firstSegment) {
+    return "";
+  }
 
   return [
     `M ${firstSegment.start.x} ${firstSegment.start.y}`,

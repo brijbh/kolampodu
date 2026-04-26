@@ -12,7 +12,7 @@ import "./styles/layout.css";
 import "./styles/theme.css";
 
 const SHAPES = [
-  { id: "triangle", label: "Triangle", pattern: [1, 2, 3, 4] },
+  { id: "triangle", label: "Triangle", pattern: [5, 4, 3, 2, 1] },
   { id: "circle", label: "Circle", pattern: [3, 5, 5, 5, 3] },
   { id: "square", label: "Square", pattern: [5, 5, 5, 5, 5] },
   { id: "diamond", label: "Diamond", pattern: [1, 2, 3, 4, 3, 2, 1] },
@@ -41,8 +41,8 @@ function ShapeSelector({ selectedShape, onSelectShape }) {
 }
 
 export default function App() {
-  const [selectedShape, setSelectedShape] = useState("diamond");
-  const shape = SHAPES.find(({ id }) => id === selectedShape) ?? SHAPES[3];
+  const [selectedShape, setSelectedShape] = useState("triangle");
+  const shape = SHAPES.find(({ id }) => id === selectedShape) ?? SHAPES[0];
   const pattern = shape.pattern;
   const gridLabel = pattern.join(" - ");
   const segments = useMemo(() => buildKolamSegments(pattern), [pattern]);
