@@ -11,8 +11,40 @@ import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/theme.css";
 
+const SHAPES = [
+  { id: "triangle", label: "Triangle", pattern: [1, 2, 3, 4] },
+  { id: "circle", label: "Circle", pattern: [3, 5, 5, 5, 3] },
+  { id: "square", label: "Square", pattern: [5, 5, 5, 5, 5] },
+  { id: "diamond", label: "Diamond", pattern: [1, 2, 3, 4, 3, 2, 1] },
+];
+
+function ShapeSelector({ selectedShape, onSelectShape }) {
+  return (
+    <section className="selector-group" aria-label="Shape selector">
+      <p className="section-label">Select Shape</p>
+      <div className="shape-options">
+        {SHAPES.map((shape) => (
+          <button
+            key={shape.id}
+            className="shape-button"
+            type="button"
+            aria-label={shape.label}
+            aria-pressed={shape.id === selectedShape}
+            onClick={() => onSelectShape(shape.id)}
+          >
+            <span className={`shape-icon shape-icon-${shape.id}`} aria-hidden="true" />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
-  const pattern = [5, 4, 3, 2, 1];
+  const [selectedShape, setSelectedShape] = useState("diamond");
+  const shape = SHAPES.find(({ id }) => id === selectedShape) ?? SHAPES[3];
+  const pattern = shape.pattern;
+  const gridLabel = pattern.join(" - ");
   const path = buildKolamPath(pattern);
   const animationRef = useRef(null);
   const [progress, setProgress] = useState(0);
@@ -49,14 +81,24 @@ export default function App() {
     setIsPlaying(true);
   };
 
+  const handleSelectShape = (shapeId) => {
+    setSelectedShape(shapeId);
+    animationRef.current?.reset();
+    setIsPlaying(false);
+  };
+
   return (
     <div className="page">
       <aside className="side-panel">
         <Header />
+        <ShapeSelector
+          selectedShape={selectedShape}
+          onSelectShape={handleSelectShape}
+        />
         <section className="selector-group" aria-label="Grid selector">
           <p className="section-label">Select Grid</p>
           <button className="select-button" type="button">
-            <span>5 - 4 - 3 - 2 - 1</span>
+            <span>{gridLabel}</span>
             <span aria-hidden="true">⌄</span>
           </button>
         </section>
@@ -88,10 +130,16 @@ export default function App() {
           <Header />
           <button className="icon-button" type="button" aria-label="Theme">☼</button>
         </div>
+        <div className="mobile-selector">
+          <ShapeSelector
+            selectedShape={selectedShape}
+            onSelectShape={handleSelectShape}
+          />
+        </div>
         <section className="mobile-selector" aria-label="Grid selector">
           <p className="section-label">Select Grid</p>
           <button className="select-button" type="button">
-            <span>5 - 4 - 3 - 2 - 1</span>
+            <span>{gridLabel}</span>
             <span aria-hidden="true">⌄</span>
           </button>
         </section>

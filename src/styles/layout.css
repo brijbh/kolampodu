@@ -44,6 +44,63 @@
   width: 100%;
 }
 
+.shape-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shape-button {
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 250, 241, 0.86);
+  color: var(--text);
+  box-shadow: 0 10px 28px rgba(70, 49, 29, 0.06);
+  cursor: pointer;
+}
+
+.shape-button[aria-pressed="true"] {
+  border-color: rgba(112, 69, 31, 0.48);
+  background: rgba(255, 247, 231, 0.96);
+  box-shadow: inset 0 0 0 1px rgba(112, 69, 31, 0.18);
+}
+
+.shape-icon {
+  position: relative;
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.shape-icon-triangle {
+  width: 0;
+  height: 0;
+  border-right: 13px solid transparent;
+  border-bottom: 23px solid var(--accent);
+  border-left: 13px solid transparent;
+}
+
+.shape-icon-circle {
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+}
+
+.shape-icon-square {
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+}
+
+.shape-icon-diamond {
+  width: 21px;
+  height: 21px;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
 .select-button,
 .action-button {
   width: 100%;
@@ -131,7 +188,11 @@
 }
 
 .mobile-selector {
-  margin-bottom: 34px;
+  margin-bottom: 22px;
+}
+
+.mobile-selector + .mobile-selector {
+  margin-bottom: 30px;
 }
 
 .canvas {
