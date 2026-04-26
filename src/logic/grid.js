@@ -1,8 +1,12 @@
 export const DOT_SPACING = 60;
 
+export function getPatternWidth(pattern) {
+  return pattern.length ? Math.max(...pattern) : 0;
+}
+
 export function generateDotGrid(pattern) {
   const dots = [];
-  const max = Math.max(...pattern);
+  const max = getPatternWidth(pattern);
 
   pattern.forEach((count, rowIndex) => {
     const offset = (max - count) / 2;
@@ -19,7 +23,7 @@ export function generateDotGrid(pattern) {
 }
 
 export function getDot(pattern, row, col) {
-  const max = Math.max(...pattern);
+  const max = getPatternWidth(pattern);
   const offset = (max - pattern[row]) / 2;
 
   return {

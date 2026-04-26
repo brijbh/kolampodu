@@ -7,6 +7,7 @@ import {
   getPathRangeDrawStyles,
   getStrokeMaterial,
 } from "../logic/animation";
+import { getViewBoxBounds } from "../logic/bounds";
 import { buildSegmentPath } from "../logic/kolam";
 
 export default function KolamCanvas({ pattern, path, segments, progress, showHint }) {
@@ -15,13 +16,13 @@ export default function KolamCanvas({ pattern, path, segments, progress, showHin
   const segmentRefs = useRef([]);
   const [pathLength, setPathLength] = useState(0);
   const [segmentLengths, setSegmentLengths] = useState([]);
-  const padding = 36;
-  const minX = Math.min(...dots.map(({ x }) => x));
-  const maxX = Math.max(...dots.map(({ x }) => x));
-  const minY = Math.min(...dots.map(({ y }) => y));
-  const maxY = Math.max(...dots.map(({ y }) => y));
-  const width = maxX - minX + padding * 2;
-  const height = maxY - minY + padding * 2;
+  const bounds = getViewBoxBounds({
+    dots,
+    segments,
+    padding: 48,
+  });
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
   const drawState = getContinuousDrawState({
     segments,
     segmentLengths,
@@ -48,7 +49,7 @@ export default function KolamCanvas({ pattern, path, segments, progress, showHin
   useLayoutEffect(() => {
     setPathLength(pathRef.current?.getTotalLength() ?? 0);
     setSegmentLengths(
-      segmentRefs.current.map((segmentRef) => segmentRef?.getTotalLength() ?? 0),
+      segments.map((_, index) => segmentRefs.current[index]?.getTotalLength() ?? 0),
     );
   }, [path, segments]);
 
@@ -61,7 +62,7 @@ export default function KolamCanvas({ pattern, path, segments, progress, showHin
       )}
 
       <svg viewBox={`0 0 ${width} ${height}`} className="svg">
-        <g transform={`translate(${padding - minX} ${padding - minY})`}>
+        <g transform={`translate(${-bounds.minX} ${-bounds.minY})`}>
           {dots.map((dot, i) => {
             const dotMaterial = getDotMaterial(dot, drawState.leadingPoint);
 

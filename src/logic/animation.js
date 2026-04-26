@@ -139,13 +139,16 @@ export function getContinuousDrawState({
     segmentLengths,
     dots,
   });
-  const completedLength = segmentLengths.reduce((sum, segmentLength, index) => (
-    elapsed >= timings[index].end ? sum + segmentLength : sum
+  const completedLength = segments.reduce((sum, _, index) => (
+    elapsed >= timings[index].end ? sum + (segmentLengths[index] ?? 0) : sum
   ), 0);
   const activeIndex = timings.findIndex(({ start, end }) => elapsed >= start && elapsed < end);
 
   if (activeIndex === -1) {
-    const totalLength = segmentLengths.reduce((sum, segmentLength) => sum + segmentLength, 0);
+    const totalLength = segments.reduce(
+      (sum, _, index) => sum + (segmentLengths[index] ?? 0),
+      0,
+    );
 
     return {
       completedLength: progress >= 1 ? totalLength : completedLength,

@@ -1,138 +1,183 @@
 import { DOT_SPACING, generateDotGrid } from "./grid";
 
-const CELL_CURVE = DOT_SPACING * 0.24;
-const OUTER_MARGIN = DOT_SPACING * 0.58;
+const DOT_CLEARANCE = DOT_SPACING * 0.44;
+const CHANNEL_HALF_WIDTH = DOT_SPACING * 0.5;
+const OUTER_MARGIN = DOT_SPACING * 0.72;
 
-function getRowDots(pattern, rowIndex) {
-  const max = Math.max(...pattern);
-  const offset = (max - pattern[rowIndex]) / 2;
-
-  return Array.from({ length: pattern[rowIndex] }, (_, colIndex) => ({
-    x: (colIndex + offset) * DOT_SPACING,
-    y: rowIndex * DOT_SPACING,
-  }));
-}
-
-function getCellRows(pattern) {
-  return pattern.slice(0, -1).map((count, rowIndex) => {
-    const nextCount = pattern[rowIndex + 1];
-    const sourceRow = nextCount <= count
-      ? getRowDots(pattern, rowIndex + 1)
-      : getRowDots(pattern, rowIndex);
-
-    return sourceRow.map((dot) => ({
-      x: dot.x,
-      y: (rowIndex + 0.5) * DOT_SPACING,
-      row: rowIndex,
-    }));
-  }).filter((row) => row.length > 0);
-}
-
-function getControlPoint(start, end, index) {
-  const horizontal = Math.abs(start.y - end.y) < 1;
-  const direction = index % 2 === 0 ? 1 : -1;
-
-  if (horizontal) {
-    return {
-      x: (start.x + end.x) / 2,
-      y: start.y + direction * CELL_CURVE,
-    };
-  }
-
-  const outward = end.x < start.x ? -1 : 1;
-
+function toSegment(start, control, end, id) {
   return {
-    x: (start.x + end.x) / 2 + outward * CELL_CURVE,
-    y: (start.y + end.y) / 2,
-  };
-}
-
-function toSegment(start, end, index, idPrefix = "cell") {
-  return {
-    id: `${idPrefix}-${index}`,
+    id,
     start,
-    control: getControlPoint(start, end, index),
+    control,
     end,
   };
 }
 
-function getCellRoute(pattern) {
-  const rows = getCellRows(pattern);
+function getRows(pattern) {
+  const max = pattern.length ? Math.max(...pattern) : 0;
 
-  if (rows.length === 0) {
-    return [];
-  }
+  return pattern.map((count, rowIndex) => {
+    const offset = (max - count) / 2;
 
-  return rows.flatMap((row, rowIndex) => {
-    const orderedRow = [...row].sort((a, b) => a.x - b.x);
-    return rowIndex % 2 === 0 ? orderedRow : orderedRow.reverse();
+    return Array.from({ length: count }, (_, colIndex) => ({
+      x: (colIndex + offset) * DOT_SPACING,
+      y: rowIndex * DOT_SPACING,
+      row: rowIndex,
+      col: colIndex,
+    }));
   });
 }
 
-function getOuterLoopSegments(route, dots) {
-  if (route.length < 2) {
+function getRowEdge(row, side) {
+  const first = row[0];
+  const last = row[row.length - 1];
+
+  return {
+    x: side === "left"
+      ? first.x - CHANNEL_HALF_WIDTH
+      : last.x + CHANNEL_HALF_WIDTH,
+    y: first.y,
+  };
+}
+
+function addDotWrapSegments(segments, dot, cursor, direction, dotIndex, rowIndex) {
+  const side = dotIndex % 2 === 0 ? -1 : 1;
+  const shoulder = {
+    x: dot.x,
+    y: dot.y + side * DOT_CLEARANCE,
+  };
+  const nextChannel = {
+    x: dot.x + direction * CHANNEL_HALF_WIDTH,
+    y: dot.y,
+  };
+
+  segments.push(
+    toSegment(
+      cursor,
+      {
+        x: cursor.x,
+        y: shoulder.y,
+      },
+      shoulder,
+      `row-${rowIndex}-dot-${dot.col}-in`,
+    ),
+    toSegment(
+      shoulder,
+      {
+        x: nextChannel.x,
+        y: shoulder.y,
+      },
+      nextChannel,
+      `row-${rowIndex}-dot-${dot.col}-out`,
+    ),
+  );
+
+  return nextChannel;
+}
+
+function addRowSegments(segments, row, rowIndex, direction) {
+  const orderedDots = direction === 1 ? row : [...row].reverse();
+  let cursor = getRowEdge(row, direction === 1 ? "left" : "right");
+
+  orderedDots.forEach((dot, dotIndex) => {
+    cursor = addDotWrapSegments(segments, dot, cursor, direction, dotIndex, rowIndex);
+  });
+
+  return cursor;
+}
+
+function addRowConnector(segments, start, end, rowIndex) {
+  const outward = rowIndex % 2 === 1 ? 1 : -1;
+
+  segments.push(
+    toSegment(
+      start,
+      {
+        x: outward === 1
+          ? Math.max(start.x, end.x) + OUTER_MARGIN
+          : Math.min(start.x, end.x) - OUTER_MARGIN,
+        y: (start.y + end.y) / 2,
+      },
+      end,
+      `row-${rowIndex}-connector`,
+    ),
+  );
+}
+
+function getOuterReturnSegments(start, end, dots) {
+  if (!dots.length) {
     return [];
   }
 
   const minX = Math.min(...dots.map(({ x }) => x));
+  const minY = Math.min(...dots.map(({ y }) => y));
   const maxY = Math.max(...dots.map(({ y }) => y));
-  const first = route[0];
-  const last = route[route.length - 1];
   const lowerLeft = {
     x: minX - OUTER_MARGIN,
     y: maxY + OUTER_MARGIN,
   };
   const upperLeft = {
     x: minX - OUTER_MARGIN,
-    y: first.y - OUTER_MARGIN * 1.2,
+    y: minY - OUTER_MARGIN,
   };
 
   return [
-    {
-      id: "outer-lower",
-      start: last,
-      control: {
-        x: (last.x + lowerLeft.x) / 2,
+    toSegment(
+      end,
+      {
+        x: (end.x + lowerLeft.x) / 2,
         y: lowerLeft.y,
       },
-      end: lowerLeft,
-    },
-    {
-      id: "outer-left",
-      start: lowerLeft,
-      control: {
-        x: lowerLeft.x - CELL_CURVE,
+      lowerLeft,
+      "outer-lower",
+    ),
+    toSegment(
+      lowerLeft,
+      {
+        x: lowerLeft.x - DOT_CLEARANCE,
         y: (lowerLeft.y + upperLeft.y) / 2,
       },
-      end: upperLeft,
-    },
-    {
-      id: "outer-return",
-      start: upperLeft,
-      control: {
+      upperLeft,
+      "outer-left",
+    ),
+    toSegment(
+      upperLeft,
+      {
         x: upperLeft.x,
-        y: first.y + CELL_CURVE,
+        y: (upperLeft.y + start.y) / 2,
       },
-      end: first,
-    },
+      start,
+      "outer-return",
+    ),
   ];
 }
 
 export function buildKolamSegments(pattern) {
-  const route = getCellRoute(pattern);
+  const rows = getRows(pattern).filter((row) => row.length > 0);
   const dots = generateDotGrid(pattern);
+  const segments = [];
 
-  if (route.length < 2) {
-    return [];
+  if (!rows.length) {
+    return segments;
   }
 
-  const cellSegments = route
-    .slice(0, -1)
-    .map((point, index) => toSegment(point, route[index + 1], index));
+  const start = getRowEdge(rows[0], "left");
+  let cursor = start;
+
+  rows.forEach((row, rowIndex) => {
+    const direction = rowIndex % 2 === 0 ? 1 : -1;
+    const rowStart = getRowEdge(row, direction === 1 ? "left" : "right");
+
+    if (rowIndex > 0) {
+      addRowConnector(segments, cursor, rowStart, rowIndex);
+    }
+
+    cursor = addRowSegments(segments, row, rowIndex, direction);
+  });
 
   return [
-    ...cellSegments,
-    ...getOuterLoopSegments(route, dots),
+    ...segments,
+    ...getOuterReturnSegments(start, cursor, dots),
   ];
 }
 
