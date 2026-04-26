@@ -1,7 +1,8 @@
 const DEFAULT_DURATION = 4600;
 const DEFAULT_START_DELAY = 200;
-const DEFAULT_END_HOLD = 300;
+const DEFAULT_END_HOLD = 500;
 const SEGMENT_OVERLAP = 0.12;
+const LEADING_EDGE_LENGTH = 12;
 const SPEED_VARIATION = [1, 0.94, 1.08, 0.98, 1.04];
 
 const clampProgress = (value) => Math.min(1, Math.max(0, value));
@@ -29,6 +30,18 @@ export function getPathRangeDrawStyles(pathLength, startLength, endLength) {
   return {
     strokeDasharray: `${visibleLength} ${length}`,
     strokeDashoffset: -start,
+  };
+}
+
+export function getStrokeMaterial(progress, activeSegmentProgress = 0) {
+  const fadeIn = clampProgress(progress * 12);
+  const pulse = Math.sin(activeSegmentProgress * Math.PI);
+
+  return {
+    opacity: 0.18 + fadeIn * 0.82,
+    strokeWidth: 2.34 + pulse * 0.18,
+    tipOpacity: 0.28 + fadeIn * 0.52,
+    tipStrokeWidth: 2.75 + pulse * 0.16,
   };
 }
 
@@ -138,6 +151,11 @@ export function getContinuousDrawState({
       completedLength: progress >= 1 ? totalLength : completedLength,
       activeStartLength: completedLength,
       activeEndLength: completedLength,
+      activeIndex,
+      activeProgress: 1,
+      leadingPoint: null,
+      tipStartLength: completedLength,
+      tipEndLength: completedLength,
     };
   }
 
@@ -151,11 +169,36 @@ export function getContinuousDrawState({
   const overlapLength = activeIndex === 0
     ? 0
     : Math.min(previousSegmentLength, activeSegmentLength) * SEGMENT_OVERLAP;
+  const activeEndLength = activeSegmentStart + activeSegmentLength * activeProgress;
 
   return {
     completedLength,
     activeStartLength: Math.max(0, activeSegmentStart - overlapLength),
-    activeEndLength: activeSegmentStart + activeSegmentLength * activeProgress,
+    activeEndLength,
+    activeIndex,
+    activeProgress,
+    leadingPoint: activeProgress > 0
+      ? getPointAt(segments[activeIndex], activeProgress)
+      : null,
+    tipStartLength: Math.max(activeSegmentStart, activeEndLength - LEADING_EDGE_LENGTH),
+    tipEndLength: activeEndLength,
+  };
+}
+
+export function getDotMaterial(dot, leadingPoint) {
+  if (!leadingPoint) {
+    return {
+      opacity: 0.7,
+      radius: 2.5,
+    };
+  }
+
+  const distance = getDistance(dot, leadingPoint);
+  const intensity = clampProgress((34 - distance) / 22);
+
+  return {
+    opacity: 0.7 + intensity * 0.22,
+    radius: 2.5 + intensity * 0.7,
   };
 }
 

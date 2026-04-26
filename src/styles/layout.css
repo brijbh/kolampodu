@@ -226,7 +226,6 @@
 
 .dot {
   fill: var(--dot);
-  opacity: 0.7;
 }
 
 .kolam-line {
