@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { generateDotGrid } from "../logic/grid";
 import { getStrokeDrawStyles } from "../logic/animation";
 
-export default function KolamCanvas({ pattern, path, progress }) {
+export default function KolamCanvas({ pattern, path, progress, showHint }) {
   const dots = generateDotGrid(pattern);
   const pathRef = useRef(null);
   const [pathLength, setPathLength] = useState(0);
@@ -26,9 +26,11 @@ export default function KolamCanvas({ pattern, path, progress }) {
 
   return (
     <div className="canvas">
-      <div className="hint">
-        Tap Play to begin the kolam
-      </div>
+      {showHint && (
+        <div className="hint">
+          Tap Play to begin the kolam
+        </div>
+      )}
 
       <svg viewBox={`0 0 ${width} ${height}`} className="svg">
         <g transform={`translate(${padding - minX} ${padding - minY})`}>

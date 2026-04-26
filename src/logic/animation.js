@@ -1,6 +1,13 @@
-const DEFAULT_DURATION = 6000;
+const DEFAULT_DURATION = 4200;
+const DEFAULT_START_DELAY = 200;
 
 const clampProgress = (value) => Math.min(1, Math.max(0, value));
+const easeInOut = (value) => {
+  const progress = clampProgress(value);
+  return progress < 0.5
+    ? 2 * progress * progress
+    : 1 - ((-2 * progress + 2) ** 2) / 2;
+};
 
 export function getStrokeDrawStyles(pathLength, progress) {
   const length = Math.max(0, pathLength);
@@ -14,14 +21,19 @@ export function getStrokeDrawStyles(pathLength, progress) {
 
 export function createKolamAnimation({
   duration = DEFAULT_DURATION,
+  startDelay = DEFAULT_START_DELAY,
   onProgress = () => {},
   onComplete = () => {},
   requestFrame = globalThis.requestAnimationFrame,
   cancelFrame = globalThis.cancelAnimationFrame,
+  setDelay = globalThis.setTimeout,
+  clearDelay = globalThis.clearTimeout,
   now = () => globalThis.performance.now(),
 } = {}) {
   const totalDuration = Math.max(1, duration);
+  const delay = Math.max(0, startDelay);
   let frameId = null;
+  let delayId = null;
   let startedAt = 0;
   let elapsedBeforeStart = 0;
   let progress = 0;
@@ -32,6 +44,11 @@ export function createKolamAnimation({
       cancelFrame(frameId);
       frameId = null;
     }
+
+    if (delayId !== null) {
+      clearDelay(delayId);
+      delayId = null;
+    }
   };
 
   const setProgress = (nextProgress) => {
@@ -40,10 +57,12 @@ export function createKolamAnimation({
   };
 
   const tick = (time) => {
-    const elapsed = elapsedBeforeStart + time - startedAt;
-    setProgress(elapsed / totalDuration);
+    const elapsed = elapsedBeforeStart + Math.max(0, time - startedAt);
+    const rawProgress = clampProgress(elapsed / totalDuration);
 
-    if (progress < 1) {
+    setProgress(easeInOut(rawProgress));
+
+    if (rawProgress < 1) {
       frameId = requestFrame(tick);
       return;
     }
@@ -59,9 +78,21 @@ export function createKolamAnimation({
       return progress;
     }
 
+    const begin = () => {
+      delayId = null;
+      startedAt = now();
+      frameId = requestFrame(tick);
+    };
+
     running = true;
-    startedAt = now();
-    frameId = requestFrame(tick);
+
+    if (delay > 0 && elapsedBeforeStart === 0 && progress === 0) {
+      startedAt = now() + delay;
+      delayId = setDelay(begin, delay);
+      return progress;
+    }
+
+    begin();
     return progress;
   };
 
@@ -70,8 +101,8 @@ export function createKolamAnimation({
       return progress;
     }
 
-    elapsedBeforeStart += now() - startedAt;
-    setProgress(elapsedBeforeStart / totalDuration);
+    elapsedBeforeStart += Math.max(0, now() - startedAt);
+    setProgress(easeInOut(elapsedBeforeStart / totalDuration));
     running = false;
     stopFrame();
     return progress;

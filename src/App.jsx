@@ -49,6 +49,7 @@ export default function App() {
   const animationRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [hasAnimationStarted, setHasAnimationStarted] = useState(false);
 
   useEffect(() => {
     animationRef.current = createKolamAnimation({
@@ -68,6 +69,7 @@ export default function App() {
 
     animationRef.current?.start();
     setIsPlaying(true);
+    setHasAnimationStarted(true);
   };
 
   const handlePause = () => {
@@ -77,14 +79,15 @@ export default function App() {
 
   const handleReset = () => {
     animationRef.current?.reset();
-    animationRef.current?.start();
-    setIsPlaying(true);
+    setIsPlaying(false);
+    setHasAnimationStarted(false);
   };
 
   const handleSelectShape = (shapeId) => {
     setSelectedShape(shapeId);
     animationRef.current?.reset();
     setIsPlaying(false);
+    setHasAnimationStarted(false);
   };
 
   return (
@@ -127,7 +130,12 @@ export default function App() {
             <span aria-hidden="true">⌄</span>
           </button>
         </section>
-        <KolamCanvas pattern={pattern} path={path} progress={progress} />
+        <KolamCanvas
+          pattern={pattern}
+          path={path}
+          progress={progress}
+          showHint={!hasAnimationStarted}
+        />
         <Controls
           isPlaying={isPlaying}
           progress={progress}
