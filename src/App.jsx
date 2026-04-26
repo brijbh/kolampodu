@@ -102,31 +102,6 @@ export default function App() {
             <span aria-hidden="true">⌄</span>
           </button>
         </section>
-        <section className="desktop-actions" aria-label="Actions">
-          <p className="section-label">Actions</p>
-          <button
-            className="action-button action-button-primary"
-            type="button"
-            onClick={handlePlay}
-            aria-pressed={isPlaying}
-          >
-            <span aria-hidden="true">▶</span>
-            <span>Draw Kolam</span>
-          </button>
-          <button className="action-button" type="button">
-            <span aria-hidden="true">⠿</span>
-            <span>Show Step by Step</span>
-          </button>
-        </section>
-        <div className="desktop-controls">
-          <Controls
-            isPlaying={isPlaying}
-            progress={progress}
-            onPlay={handlePlay}
-            onPause={handlePause}
-            onReset={handleReset}
-          />
-        </div>
         <p className="side-note">A kolam a day,<br />brings peace<br />in every way.</p>
       </aside>
       <main className="canvas-area" aria-label="Kolam drawing area">
@@ -152,16 +127,14 @@ export default function App() {
             <span aria-hidden="true">⌄</span>
           </button>
         </section>
-        <KolamCanvas pattern={pattern} path={path} />
-        <div className="mobile-controls">
-          <Controls
-            isPlaying={isPlaying}
-            progress={progress}
-            onPlay={handlePlay}
-            onPause={handlePause}
-            onReset={handleReset}
-          />
-        </div>
+        <KolamCanvas pattern={pattern} path={path} progress={progress} />
+        <Controls
+          isPlaying={isPlaying}
+          progress={progress}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onReset={handleReset}
+        />
         <nav className="mobile-nav" aria-label="Primary">
           <a className="mobile-nav-item is-active" href="#home">
             <span aria-hidden="true">⌂</span>

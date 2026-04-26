@@ -25,7 +25,7 @@
 
 .brand-mark {
   color: #8d431e;
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 400;
   line-height: 0.8;
 }
@@ -153,9 +153,9 @@
 
 .side-note {
   margin-top: auto;
-  color: var(--text);
+  color: var(--muted);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1.35;
   text-align: center;
 }
@@ -236,7 +236,7 @@
   stroke-linecap: round;
 }
 
-.mobile-controls .controls {
+.controls {
   position: absolute;
   left: 50%;
   bottom: 76px;
@@ -251,14 +251,6 @@
   box-shadow: 0 16px 46px rgba(70, 49, 29, 0.14);
   transform: translateX(-50%);
   backdrop-filter: blur(12px);
-}
-
-.desktop-controls {
-  display: none;
-}
-
-.mobile-controls {
-  display: block;
 }
 
 .control-item {
@@ -366,10 +358,10 @@
   .side-panel {
     display: flex;
     flex-direction: column;
-    gap: 34px;
+    gap: 26px;
     min-height: 100svh;
-    padding: 42px 24px 76px 30px;
-    background: rgba(255, 248, 235, 0.8);
+    padding: 34px 22px 48px 26px;
+    background: rgba(255, 248, 235, 0.54);
     border-right: 1px solid var(--border);
     text-align: left;
   }
@@ -379,18 +371,13 @@
   }
 
   .header {
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .mobile-topbar,
   .mobile-selector,
-  .mobile-nav,
-  .mobile-controls {
+  .mobile-nav {
     display: none;
-  }
-
-  .desktop-controls {
-    display: block;
   }
 
   .desktop-tools {
@@ -404,7 +391,7 @@
   .canvas-area {
     grid-template-rows: 1fr;
     min-height: 100svh;
-    padding: 54px 64px 72px;
+    padding: 54px 64px 142px;
   }
 
   .canvas {
@@ -417,31 +404,10 @@
     max-height: calc(100svh - 160px);
   }
 
-  .desktop-controls .controls {
-    position: static;
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    padding: 12px 14px 10px;
-    transform: none;
-    backdrop-filter: blur(12px);
-  }
-
-  .desktop-controls .control-item {
-    min-width: 0;
-    flex: 1;
-    gap: 8px;
-  }
-
-  .desktop-controls .control-button {
-    width: 42px;
-    height: 42px;
-    font-size: 18px;
-  }
-
-  .desktop-controls .control-label {
-    font-size: 12px;
+  .controls {
+    bottom: 34px;
+    gap: 26px;
+    padding: 16px 34px 12px;
   }
 
   .hint {
