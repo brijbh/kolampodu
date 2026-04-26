@@ -6,7 +6,7 @@ export default function KolamCanvas({ pattern, path }) {
   return (
     <div className="canvas">
       <div className="hint">
-        Tap ▶ to begin
+        Tap Play to begin the kolam
       </div>
 
       <svg viewBox="0 0 300 300" className="svg">
