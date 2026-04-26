@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from "react";
+
 import Header from "./components/Header";
 import KolamCanvas from "./components/KolamCanvas";
 import Controls from "./components/Controls";
 
+import { createKolamAnimation } from "./logic/animation";
 import { buildKolamPath } from "./logic/kolam";
 
 import "./styles/base.css";
@@ -11,6 +14,40 @@ import "./styles/theme.css";
 export default function App() {
   const pattern = [5, 4, 3, 2, 1];
   const path = buildKolamPath(pattern);
+  const animationRef = useRef(null);
+  const [progress, setProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    animationRef.current = createKolamAnimation({
+      onProgress: setProgress,
+      onComplete: () => setIsPlaying(false),
+    });
+
+    return () => {
+      animationRef.current?.pause();
+    };
+  }, []);
+
+  const handlePlay = () => {
+    if (animationRef.current?.progress >= 1) {
+      animationRef.current.reset();
+    }
+
+    animationRef.current?.start();
+    setIsPlaying(true);
+  };
+
+  const handlePause = () => {
+    animationRef.current?.pause();
+    setIsPlaying(false);
+  };
+
+  const handleReset = () => {
+    animationRef.current?.reset();
+    animationRef.current?.start();
+    setIsPlaying(true);
+  };
 
   return (
     <div className="page">
@@ -25,7 +62,12 @@ export default function App() {
         </section>
         <section className="desktop-actions" aria-label="Actions">
           <p className="section-label">Actions</p>
-          <button className="action-button action-button-primary" type="button">
+          <button
+            className="action-button action-button-primary"
+            type="button"
+            onClick={handlePlay}
+            aria-pressed={isPlaying}
+          >
             <span aria-hidden="true">▶</span>
             <span>Draw Kolam</span>
           </button>
@@ -54,7 +96,13 @@ export default function App() {
           </button>
         </section>
         <KolamCanvas pattern={pattern} path={path} />
-        <Controls />
+        <Controls
+          isPlaying={isPlaying}
+          progress={progress}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onReset={handleReset}
+        />
         <nav className="mobile-nav" aria-label="Primary">
           <a className="mobile-nav-item is-active" href="#home">
             <span aria-hidden="true">⌂</span>
