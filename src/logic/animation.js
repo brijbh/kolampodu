@@ -1,15 +1,13 @@
 const DEFAULT_DURATION = 4600;
 const DEFAULT_START_DELAY = 200;
-const DEFAULT_SEGMENT_GAP = 125;
 const DEFAULT_END_HOLD = 300;
-const SPEED_VARIATION = [1, 0.88, 1.08, 0.94, 1.04];
+const SEGMENT_OVERLAP = 0.12;
+const SPEED_VARIATION = [1, 0.94, 1.08, 0.98, 1.04];
 
 const clampProgress = (value) => Math.min(1, Math.max(0, value));
-const easeInOut = (value) => {
+const easeSlowEntryFastExit = (value) => {
   const progress = clampProgress(value);
-  return progress < 0.5
-    ? 2 * progress * progress
-    : 1 - ((-2 * progress + 2) ** 2) / 2;
+  return progress * progress * (1.2 - 0.2 * progress);
 };
 
 export function getStrokeDrawStyles(pathLength, progress) {
@@ -22,41 +20,143 @@ export function getStrokeDrawStyles(pathLength, progress) {
   };
 }
 
-function getSegmentTimings(segmentCount, {
+export function getPathRangeDrawStyles(pathLength, startLength, endLength) {
+  const length = Math.max(0, pathLength);
+  const start = Math.min(length, Math.max(0, startLength));
+  const end = Math.min(length, Math.max(start, endLength));
+  const visibleLength = end - start;
+
+  return {
+    strokeDasharray: `${visibleLength} ${length}`,
+    strokeDashoffset: -start,
+  };
+}
+
+function getPointAt(segment, progress) {
+  const inverse = 1 - progress;
+
+  return {
+    x: inverse * inverse * segment.start.x
+      + 2 * inverse * progress * segment.control.x
+      + progress * progress * segment.end.x,
+    y: inverse * inverse * segment.start.y
+      + 2 * inverse * progress * segment.control.y
+      + progress * progress * segment.end.y,
+  };
+}
+
+function getDistance(firstPoint, secondPoint) {
+  return Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y);
+}
+
+function getDotSlowdown(segment, dots) {
+  if (!dots.length) {
+    return 1;
+  }
+
+  const samples = [0.25, 0.5, 0.75].map((progress) => getPointAt(segment, progress));
+  const nearestDistance = Math.min(
+    ...samples.flatMap((sample) => dots.map((dot) => getDistance(sample, dot))),
+  );
+
+  if (nearestDistance < 20) {
+    return 1.18;
+  }
+
+  if (nearestDistance < 36) {
+    return 1.1;
+  }
+
+  return 1;
+}
+
+function getSegmentTimings(segments, {
   duration = DEFAULT_DURATION,
-  segmentGap = DEFAULT_SEGMENT_GAP,
   endHold = DEFAULT_END_HOLD,
+  segmentLengths = [],
+  dots = [],
 } = {}) {
-  const count = Math.max(1, segmentCount);
+  const count = Math.max(1, segments.length);
   const totalDuration = Math.max(1, duration);
-  const totalGap = Math.max(0, count - 1) * Math.max(0, segmentGap);
-  const drawableDuration = Math.max(1, totalDuration - totalGap - Math.max(0, endHold));
+  const drawableDuration = Math.max(1, totalDuration - Math.max(0, endHold));
   const weights = Array.from(
     { length: count },
-    (_, index) => SPEED_VARIATION[index % SPEED_VARIATION.length],
+    (_, index) => {
+      const lengthWeight = Math.max(1, segmentLengths[index] ?? 1);
+      const speedWeight = SPEED_VARIATION[index % SPEED_VARIATION.length];
+      const dotWeight = getDotSlowdown(segments[index], dots);
+
+      return lengthWeight * speedWeight * dotWeight;
+    },
   );
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
   let cursor = 0;
 
-  return weights.map((weight, index) => {
+  return weights.map((weight) => {
     const segmentDuration = drawableDuration * (weight / totalWeight);
     const timing = {
       start: cursor,
       end: cursor + segmentDuration,
     };
 
-    cursor = timing.end + (index === count - 1 ? 0 : Math.max(0, segmentGap));
+    cursor = timing.end;
     return timing;
   });
 }
 
-export function getSegmentProgresses(segmentCount, progress, timingOptions) {
+export function getSegmentProgresses(segments, progress, timingOptions) {
   const elapsed = clampProgress(progress) * Math.max(1, timingOptions?.duration ?? DEFAULT_DURATION);
 
-  return getSegmentTimings(segmentCount, timingOptions).map(({ start, end }) => {
+  return getSegmentTimings(segments, timingOptions).map(({ start, end }) => {
     const segmentDuration = Math.max(1, end - start);
-    return easeInOut((elapsed - start) / segmentDuration);
+    return easeSlowEntryFastExit((elapsed - start) / segmentDuration);
   });
+}
+
+export function getContinuousDrawState({
+  segments,
+  segmentLengths,
+  dots,
+  progress,
+  timingOptions,
+}) {
+  const elapsed = clampProgress(progress) * Math.max(1, timingOptions?.duration ?? DEFAULT_DURATION);
+  const timings = getSegmentTimings(segments, {
+    ...timingOptions,
+    segmentLengths,
+    dots,
+  });
+  const completedLength = segmentLengths.reduce((sum, segmentLength, index) => (
+    elapsed >= timings[index].end ? sum + segmentLength : sum
+  ), 0);
+  const activeIndex = timings.findIndex(({ start, end }) => elapsed >= start && elapsed < end);
+
+  if (activeIndex === -1) {
+    const totalLength = segmentLengths.reduce((sum, segmentLength) => sum + segmentLength, 0);
+
+    return {
+      completedLength: progress >= 1 ? totalLength : completedLength,
+      activeStartLength: completedLength,
+      activeEndLength: completedLength,
+    };
+  }
+
+  const activeSegmentStart = segmentLengths
+    .slice(0, activeIndex)
+    .reduce((sum, segmentLength) => sum + segmentLength, 0);
+  const activeSegmentLength = segmentLengths[activeIndex] ?? 0;
+  const { start, end } = timings[activeIndex];
+  const activeProgress = easeSlowEntryFastExit((elapsed - start) / Math.max(1, end - start));
+  const previousSegmentLength = segmentLengths[activeIndex - 1] ?? 0;
+  const overlapLength = activeIndex === 0
+    ? 0
+    : Math.min(previousSegmentLength, activeSegmentLength) * SEGMENT_OVERLAP;
+
+  return {
+    completedLength,
+    activeStartLength: Math.max(0, activeSegmentStart - overlapLength),
+    activeEndLength: activeSegmentStart + activeSegmentLength * activeProgress,
+  };
 }
 
 export function createKolamAnimation({

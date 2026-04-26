@@ -1,12 +1,18 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { generateDotGrid } from "../logic/grid";
-import { getSegmentProgresses, getStrokeDrawStyles } from "../logic/animation";
+import {
+  getContinuousDrawState,
+  getPathRangeDrawStyles,
+} from "../logic/animation";
+import { buildSegmentPath } from "../logic/kolam";
 
-export default function KolamCanvas({ pattern, segments, progress, showHint }) {
+export default function KolamCanvas({ pattern, path, segments, progress, showHint }) {
   const dots = generateDotGrid(pattern);
-  const pathRefs = useRef([]);
-  const [pathLengths, setPathLengths] = useState([]);
+  const pathRef = useRef(null);
+  const segmentRefs = useRef([]);
+  const [pathLength, setPathLength] = useState(0);
+  const [segmentLengths, setSegmentLengths] = useState([]);
   const padding = 36;
   const minX = Math.min(...dots.map(({ x }) => x));
   const maxX = Math.max(...dots.map(({ x }) => x));
@@ -14,13 +20,29 @@ export default function KolamCanvas({ pattern, segments, progress, showHint }) {
   const maxY = Math.max(...dots.map(({ y }) => y));
   const width = maxX - minX + padding * 2;
   const height = maxY - minY + padding * 2;
-  const segmentProgresses = getSegmentProgresses(segments.length, progress);
+  const drawState = getContinuousDrawState({
+    segments,
+    segmentLengths,
+    dots,
+    progress,
+  });
+  const completedStroke = getPathRangeDrawStyles(
+    pathLength,
+    0,
+    drawState.completedLength,
+  );
+  const activeStroke = getPathRangeDrawStyles(
+    pathLength,
+    drawState.activeStartLength,
+    drawState.activeEndLength,
+  );
 
   useLayoutEffect(() => {
-    setPathLengths(
-      pathRefs.current.map((pathRef) => pathRef?.getTotalLength() ?? 0),
+    setPathLength(pathRef.current?.getTotalLength() ?? 0);
+    setSegmentLengths(
+      segmentRefs.current.map((segmentRef) => segmentRef?.getTotalLength() ?? 0),
     );
-  }, [segments]);
+  }, [path, segments]);
 
   return (
     <div className="canvas">
@@ -42,25 +64,30 @@ export default function KolamCanvas({ pattern, segments, progress, showHint }) {
             />
           ))}
 
-          {segments.map((segment, index) => {
-            const strokeDraw = getStrokeDrawStyles(
-              pathLengths[index] ?? 0,
-              segmentProgresses[index] ?? 0,
-            );
-
-            return (
-              <path
-                key={segment}
-                ref={(pathRef) => {
-                  pathRefs.current[index] = pathRef;
-                }}
-                d={segment}
-                className="kolam-line"
-                strokeDasharray={strokeDraw.strokeDasharray}
-                strokeDashoffset={strokeDraw.strokeDashoffset}
-              />
-            );
-          })}
+          <path
+            ref={pathRef}
+            d={path}
+            className="kolam-line"
+            strokeDasharray={completedStroke.strokeDasharray}
+            strokeDashoffset={completedStroke.strokeDashoffset}
+          />
+          <path
+            d={path}
+            className="kolam-line"
+            strokeDasharray={activeStroke.strokeDasharray}
+            strokeDashoffset={activeStroke.strokeDashoffset}
+          />
+          {segments.map((segment, index) => (
+            <path
+              key={segment.id}
+              ref={(segmentRef) => {
+                segmentRefs.current[index] = segmentRef;
+              }}
+              d={buildSegmentPath(segment)}
+              fill="none"
+              stroke="transparent"
+            />
+          ))}
         </g>
       </svg>
     </div>

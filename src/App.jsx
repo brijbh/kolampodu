@@ -5,7 +5,7 @@ import KolamCanvas from "./components/KolamCanvas";
 import Controls from "./components/Controls";
 
 import { createKolamAnimation } from "./logic/animation";
-import { buildKolamSegments } from "./logic/kolam";
+import { buildKolamPath, buildKolamSegments } from "./logic/kolam";
 
 import "./styles/base.css";
 import "./styles/layout.css";
@@ -46,6 +46,7 @@ export default function App() {
   const pattern = shape.pattern;
   const gridLabel = pattern.join(" - ");
   const segments = useMemo(() => buildKolamSegments(pattern), [pattern]);
+  const path = useMemo(() => buildKolamPath(pattern), [pattern]);
   const animationRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -132,6 +133,7 @@ export default function App() {
         </section>
         <KolamCanvas
           pattern={pattern}
+          path={path}
           segments={segments}
           progress={progress}
           showHint={!hasAnimationStarted}
