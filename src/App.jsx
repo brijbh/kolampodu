@@ -118,6 +118,15 @@ export default function App() {
             <span>Show Step by Step</span>
           </button>
         </section>
+        <div className="desktop-controls">
+          <Controls
+            isPlaying={isPlaying}
+            progress={progress}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            onReset={handleReset}
+          />
+        </div>
         <p className="side-note">A kolam a day,<br />brings peace<br />in every way.</p>
       </aside>
       <main className="canvas-area" aria-label="Kolam drawing area">
@@ -144,13 +153,15 @@ export default function App() {
           </button>
         </section>
         <KolamCanvas pattern={pattern} path={path} />
-        <Controls
-          isPlaying={isPlaying}
-          progress={progress}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onReset={handleReset}
-        />
+        <div className="mobile-controls">
+          <Controls
+            isPlaying={isPlaying}
+            progress={progress}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            onReset={handleReset}
+          />
+        </div>
         <nav className="mobile-nav" aria-label="Primary">
           <a className="mobile-nav-item is-active" href="#home">
             <span aria-hidden="true">⌂</span>

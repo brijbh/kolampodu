@@ -71,16 +71,28 @@
 .shape-icon {
   position: relative;
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
 }
 
 .shape-icon-triangle {
   width: 0;
   height: 0;
-  border-right: 13px solid transparent;
-  border-bottom: 23px solid var(--accent);
-  border-left: 13px solid transparent;
+  border-right: 14px solid transparent;
+  border-bottom: 25px solid var(--accent);
+  border-left: 14px solid transparent;
+}
+
+.shape-icon-triangle::before {
+  position: absolute;
+  left: -10px;
+  top: 7px;
+  width: 0;
+  height: 0;
+  border-right: 10px solid transparent;
+  border-bottom: 17px solid #fffaf1;
+  border-left: 10px solid transparent;
+  content: "";
 }
 
 .shape-icon-circle {
@@ -94,8 +106,8 @@
 }
 
 .shape-icon-diamond {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
   border: 2px solid var(--accent);
   border-radius: 2px;
   transform: rotate(45deg);
@@ -151,9 +163,9 @@
 .canvas-area {
   position: relative;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto 1fr;
   min-height: 100svh;
-  padding: 24px 28px 96px;
+  padding: 20px 28px 96px;
   background:
     radial-gradient(circle at center, rgba(255, 255, 255, 0.8), transparent 38%),
     var(--bg);
@@ -164,7 +176,7 @@
   grid-template-columns: 42px 1fr 42px;
   align-items: center;
   gap: 12px;
-  margin-bottom: 38px;
+  margin-bottom: 26px;
 }
 
 .mobile-topbar .header {
@@ -188,11 +200,11 @@
 }
 
 .mobile-selector {
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 
 .mobile-selector + .mobile-selector {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 
 .canvas {
@@ -202,14 +214,14 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: min(13vh, 130px);
+  padding-top: min(4vh, 36px);
 }
 
 .svg {
   display: block;
-  width: min(78vw, 360px);
+  width: min(70vw, 330px);
   height: auto;
-  aspect-ratio: 1;
+  max-height: calc(100svh - 430px);
 }
 
 .dot {
@@ -224,7 +236,7 @@
   stroke-linecap: round;
 }
 
-.controls {
+.mobile-controls .controls {
   position: absolute;
   left: 50%;
   bottom: 76px;
@@ -239,6 +251,14 @@
   box-shadow: 0 16px 46px rgba(70, 49, 29, 0.14);
   transform: translateX(-50%);
   backdrop-filter: blur(12px);
+}
+
+.desktop-controls {
+  display: none;
+}
+
+.mobile-controls {
+  display: block;
 }
 
 .control-item {
@@ -296,7 +316,7 @@
 .hint {
   position: absolute;
   left: 50%;
-  top: calc(50% + 162px);
+  top: calc(50% + 148px);
   transform: translate(-50%, -50%);
   color: var(--muted);
   font-size: 14px;
@@ -364,8 +384,13 @@
 
   .mobile-topbar,
   .mobile-selector,
-  .mobile-nav {
+  .mobile-nav,
+  .mobile-controls {
     display: none;
+  }
+
+  .desktop-controls {
+    display: block;
   }
 
   .desktop-tools {
@@ -379,7 +404,7 @@
   .canvas-area {
     grid-template-rows: 1fr;
     min-height: 100svh;
-    padding: 54px 64px 150px;
+    padding: 54px 64px 72px;
   }
 
   .canvas {
@@ -388,17 +413,39 @@
   }
 
   .svg {
-    width: min(52vw, 520px);
+    width: min(48vw, 560px);
+    max-height: calc(100svh - 160px);
   }
 
-  .controls {
-    bottom: 118px;
-    gap: 30px;
-    padding: 18px 42px 14px;
+  .desktop-controls .controls {
+    position: static;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 14px 10px;
+    transform: none;
+    backdrop-filter: blur(12px);
+  }
+
+  .desktop-controls .control-item {
+    min-width: 0;
+    flex: 1;
+    gap: 8px;
+  }
+
+  .desktop-controls .control-button {
+    width: 42px;
+    height: 42px;
+    font-size: 18px;
+  }
+
+  .desktop-controls .control-label {
+    font-size: 12px;
   }
 
   .hint {
-    top: calc(50% + 300px);
+    top: calc(50% + min(26vw, 300px));
     font-size: 18px;
   }
 }
