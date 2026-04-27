@@ -6,9 +6,9 @@ const PLACEHOLDER_PATTERNS = new Set([
   "1,2,3,4,3,2,1",
   "3,5,5,5,3",
 ]);
-const OUTER_RADIUS = 24;
-const INNER_RADIUS = OUTER_RADIUS * 0.55;
-const INNER_LAYER_OFFSET = OUTER_RADIUS + INNER_RADIUS;
+const TRACE_CLEARANCE = 24;
+const TRACE_CONTROL_OFFSET = TRACE_CLEARANCE * 2;
+const CELL_HALF_WIDTH = DOT_SPACING * 0.5;
 const LOOP_RADIUS = DOT_SPACING * 0.36;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
 
@@ -125,18 +125,6 @@ function getExit(dot, direction) {
   return direction === 1 ? compass(dot).east : compass(dot).west;
 }
 
-function getTriangleEntry(dot, direction) {
-  return direction === 1
-    ? triangleCompass(dot, OUTER_RADIUS).west
-    : triangleCompass(dot, OUTER_RADIUS).east;
-}
-
-function getTriangleExit(dot, direction) {
-  return direction === 1
-    ? triangleCompass(dot, OUTER_RADIUS).east
-    : triangleCompass(dot, OUTER_RADIUS).west;
-}
-
 function addRowDrop(segments, start, end, id, side) {
   segments.push(toSegment(
     start,
@@ -151,186 +139,100 @@ function addRowDrop(segments, start, end, id, side) {
   ));
 }
 
-function getTriangleTurn(rowIndex) {
-  return rowIndex % 2 === 0 ? "upper" : "lower";
-}
-
-function triangleCompass(dot, radius) {
-  return compass(dot, radius);
-}
-
-function addTriangleLoop(segments, dot, direction, turn, id) {
-  const points = triangleCompass(dot, OUTER_RADIUS);
-  const route = direction === 1
-    ? turn === "upper"
-      ? [
-        ["west", "northWest", "north"],
-        ["north", "northEast", "east"],
-      ]
-      : [
-        ["west", "southWest", "south"],
-        ["south", "southEast", "east"],
-      ]
-    : turn === "upper"
-      ? [
-        ["east", "northEast", "north"],
-        ["north", "northWest", "west"],
-      ]
-      : [
-        ["east", "southEast", "south"],
-        ["south", "southWest", "west"],
-      ];
-
-  route.forEach(([start, control, end], index) => {
-    segments.push(toSegment(
-      points[start],
-      points[control],
-      points[end],
-      `${id}-loop-${index}`,
-    ));
-  });
-}
-
-function addTriangleRowDrop(segments, start, end, id, side) {
-  segments.push(toSegment(
-    start,
-    {
-      x: side === "right"
-        ? Math.max(start.x, end.x) + OUTER_RADIUS * 0.75
-        : Math.min(start.x, end.x) - OUTER_RADIUS * 0.75,
-      y: (start.y + end.y) / 2,
-    },
-    end,
-    id,
-  ));
-}
-
-function getInnerEntry(center, direction) {
-  return direction === 1
-    ? triangleCompass(center, INNER_RADIUS).west
-    : triangleCompass(center, INNER_RADIUS).east;
-}
-
-function getInnerExit(center, direction) {
-  return direction === 1
-    ? triangleCompass(center, INNER_RADIUS).west
-    : triangleCompass(center, INNER_RADIUS).east;
-}
-
-function addInnerLoop(segments, center, direction, id) {
-  const points = triangleCompass(center, INNER_RADIUS);
-  const route = direction === 1
-    ? [
-      ["west", "northWest", "north"],
-      ["north", "northEast", "east"],
-      ["east", "southEast", "south"],
-      ["south", "southWest", "west"],
-    ]
-    : [
-      ["east", "northEast", "north"],
-      ["north", "northWest", "west"],
-      ["west", "southWest", "south"],
-      ["south", "southEast", "east"],
-    ];
-
-  route.forEach(([start, control, end], index) => {
-    segments.push(toSegment(
-      points[start],
-      points[control],
-      points[end],
-      `${id}-loop-${index}`,
-    ));
-  });
-}
-
-function addTriangleConnector(segments, start, end, id, offset = 0) {
+function addTraceSegment(segments, start, control, end, id) {
   if (start.x === end.x && start.y === end.y) {
     return;
   }
 
-  segments.push(toSegment(
-    start,
-    {
-      x: (start.x + end.x) / 2,
-      y: (start.y + end.y) / 2 + offset,
-    },
-    end,
-    id,
-  ));
+  segments.push(toSegment(start, control, end, id));
 }
 
-function getInnerLayerCenter(dot, nextDot, turn) {
+function getRowTraceGaps(row, direction) {
+  const gaps = [
+    {
+      x: row[0].x - CELL_HALF_WIDTH,
+      y: row[0].y,
+    },
+    ...row.slice(0, -1).map((dot, index) => ({
+      x: (dot.x + row[index + 1].x) / 2,
+      y: dot.y,
+    })),
+    {
+      x: row[row.length - 1].x + CELL_HALF_WIDTH,
+      y: row[0].y,
+    },
+  ];
+
+  return direction === 1 ? gaps : [...gaps].reverse();
+}
+
+function getRowTraceDots(row, direction) {
+  return direction === 1 ? row : [...row].reverse();
+}
+
+function getRowTraceSide(rowIndex) {
+  return rowIndex % 2 === 0 ? -1 : 1;
+}
+
+function addTraceRow(segments, row, rowIndex, direction) {
+  const gaps = getRowTraceGaps(row, direction);
+  const dots = getRowTraceDots(row, direction);
+  const side = getRowTraceSide(rowIndex);
+
+  dots.forEach((dot, index) => {
+    addTraceSegment(
+      segments,
+      gaps[index],
+      {
+        x: (gaps[index].x + gaps[index + 1].x) / 2,
+        y: dot.y + side * TRACE_CONTROL_OFFSET,
+      },
+      gaps[index + 1],
+      `trace-row-${rowIndex}-cell-${index}`,
+    );
+  });
+
   return {
-    x: (dot.x + nextDot.x) / 2,
-    y: (dot.y + nextDot.y) / 2 + (turn === "upper" ? INNER_LAYER_OFFSET : -INNER_LAYER_OFFSET),
+    start: gaps[0],
+    end: gaps[gaps.length - 1],
   };
+}
+
+function addTraceRowConnector(segments, start, end, rowIndex) {
+  const midpoint = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+  const side = start.x > end.x ? 1 : -1;
+
+  addTraceSegment(
+    segments,
+    start,
+    {
+      x: midpoint.x + side * TRACE_CONTROL_OFFSET,
+      y: midpoint.y,
+    },
+    end,
+    `trace-row-${rowIndex}-connector`,
+  );
 }
 
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
-  let cursor = null;
+  let previousRowEnd = null;
 
   rows.forEach((row, rowIndex) => {
     const direction = rowIndex % 2 === 0 ? 1 : -1;
-    const orderedDots = direction === 1 ? row : [...row].reverse();
-    const rowEntry = getTriangleEntry(orderedDots[0], direction);
+    const [start] = getRowTraceGaps(row, direction);
 
-    if (cursor) {
-      addTriangleRowDrop(
-        segments,
-        cursor,
-        rowEntry,
-        `row-${rowIndex}-drop`,
-        direction === 1 ? "left" : "right",
-      );
+    if (previousRowEnd) {
+      addTraceRowConnector(segments, previousRowEnd, start, rowIndex);
     }
 
-    orderedDots.forEach((dot, dotIndex) => {
-      const entry = getTriangleEntry(dot, direction);
+    const { end } = addTraceRow(segments, row, rowIndex, direction);
 
-      if (cursor && (cursor.x !== entry.x || cursor.y !== entry.y)) {
-        addTriangleConnector(
-          segments,
-          cursor,
-          entry,
-          `row-${rowIndex}-dot-${dotIndex}-join`,
-        );
-      }
-
-      addTriangleLoop(
-        segments,
-        dot,
-        direction,
-        getTriangleTurn(rowIndex),
-        `row-${rowIndex}-dot-${dotIndex}`,
-      );
-
-      cursor = getTriangleExit(dot, direction);
-
-      if (dotIndex < orderedDots.length - 1) {
-        const nextDot = orderedDots[dotIndex + 1];
-        const turn = getTriangleTurn(rowIndex);
-        const innerCenter = getInnerLayerCenter(dot, nextDot, turn);
-        const innerEntry = getInnerEntry(innerCenter, direction);
-
-        addTriangleConnector(
-          segments,
-          cursor,
-          innerEntry,
-          `row-${rowIndex}-dot-${dotIndex}-inner-entry`,
-          turn === "upper" ? INNER_RADIUS : -INNER_RADIUS,
-        );
-        addInnerLoop(
-          segments,
-          innerCenter,
-          direction,
-          `row-${rowIndex}-dot-${dotIndex}-inner`,
-        );
-
-        cursor = getInnerExit(innerCenter, direction);
-      }
-    });
+    previousRowEnd = end;
   });
 
   return segments;
