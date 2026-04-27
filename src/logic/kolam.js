@@ -7,6 +7,7 @@ const PLACEHOLDER_PATTERNS = new Set([
   "3,5,5,5,3",
 ]);
 const LOOP_RADIUS = DOT_SPACING * 0.36;
+const INNER_LOOP_RADIUS = DOT_SPACING * 0.2;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
 
 function toSegment(start, control, end, id) {
@@ -45,16 +46,16 @@ function getRows(pattern) {
   });
 }
 
-function compass(dot) {
+function compass(dot, radius = LOOP_RADIUS) {
   return {
-    north: { x: dot.x, y: dot.y - LOOP_RADIUS },
-    east: { x: dot.x + LOOP_RADIUS, y: dot.y },
-    south: { x: dot.x, y: dot.y + LOOP_RADIUS },
-    west: { x: dot.x - LOOP_RADIUS, y: dot.y },
-    northEast: { x: dot.x + LOOP_RADIUS, y: dot.y - LOOP_RADIUS },
-    southEast: { x: dot.x + LOOP_RADIUS, y: dot.y + LOOP_RADIUS },
-    southWest: { x: dot.x - LOOP_RADIUS, y: dot.y + LOOP_RADIUS },
-    northWest: { x: dot.x - LOOP_RADIUS, y: dot.y - LOOP_RADIUS },
+    north: { x: dot.x, y: dot.y - radius },
+    east: { x: dot.x + radius, y: dot.y },
+    south: { x: dot.x, y: dot.y + radius },
+    west: { x: dot.x - radius, y: dot.y },
+    northEast: { x: dot.x + radius, y: dot.y - radius },
+    southEast: { x: dot.x + radius, y: dot.y + radius },
+    southWest: { x: dot.x - radius, y: dot.y + radius },
+    northWest: { x: dot.x - radius, y: dot.y - radius },
   };
 }
 
@@ -208,6 +209,44 @@ function addTriangleRowDrop(segments, start, end, id, side) {
   ));
 }
 
+function getInnerEntry(center, direction) {
+  return direction === 1
+    ? compass(center, INNER_LOOP_RADIUS).west
+    : compass(center, INNER_LOOP_RADIUS).east;
+}
+
+function getInnerExit(center, direction) {
+  return direction === 1
+    ? compass(center, INNER_LOOP_RADIUS).west
+    : compass(center, INNER_LOOP_RADIUS).east;
+}
+
+function addInnerLoop(segments, center, direction, id) {
+  const points = compass(center, INNER_LOOP_RADIUS);
+  const route = direction === 1
+    ? [
+      ["west", "northWest", "north"],
+      ["north", "northEast", "east"],
+      ["east", "southEast", "south"],
+      ["south", "southWest", "west"],
+    ]
+    : [
+      ["east", "northEast", "north"],
+      ["north", "northWest", "west"],
+      ["west", "southWest", "south"],
+      ["south", "southEast", "east"],
+    ];
+
+  route.forEach(([start, control, end], index) => {
+    segments.push(toSegment(
+      points[start],
+      points[control],
+      points[end],
+      `${id}-loop-${index}`,
+    ));
+  });
+}
+
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
@@ -249,6 +288,30 @@ function buildHandcraftedSikkuSegments(pattern) {
       );
 
       cursor = getExit(dot, direction);
+
+      if (dotIndex < orderedDots.length - 1) {
+        const nextDot = orderedDots[dotIndex + 1];
+        const innerCenter = {
+          x: (dot.x + nextDot.x) / 2,
+          y: dot.y,
+        };
+        const innerEntry = getInnerEntry(innerCenter, direction);
+
+        addSmoothConnector(
+          segments,
+          cursor,
+          innerEntry,
+          `row-${rowIndex}-dot-${dotIndex}-inner-entry`,
+        );
+        addInnerLoop(
+          segments,
+          innerCenter,
+          direction,
+          `row-${rowIndex}-dot-${dotIndex}-inner`,
+        );
+
+        cursor = getInnerExit(innerCenter, direction);
+      }
     });
   });
 
