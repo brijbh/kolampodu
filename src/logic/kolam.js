@@ -6,8 +6,7 @@ const PLACEHOLDER_PATTERNS = new Set([
   "1,2,3,4,3,2,1",
   "3,5,5,5,3",
 ]);
-const TURN_RADIUS = 24;
-const CELL_HALF_WIDTH = DOT_SPACING * 0.5;
+const ANCHOR_RADIUS = 24;
 const LOOP_RADIUS = DOT_SPACING * 0.36;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
 
@@ -138,7 +137,7 @@ function addRowDrop(segments, start, end, id, side) {
   ));
 }
 
-function addTraceSegment(segments, start, control, end, id) {
+function addAnchorSegment(segments, start, control, end, id) {
   if (start.x === end.x && start.y === end.y) {
     return;
   }
@@ -146,118 +145,92 @@ function addTraceSegment(segments, start, control, end, id) {
   segments.push(toSegment(start, control, end, id));
 }
 
-function getRowTraceGaps(row, direction) {
-  const gaps = [
-    {
-      x: row[0].x - CELL_HALF_WIDTH,
-      y: row[0].y,
-    },
-    ...row.slice(0, -1).map((dot, index) => ({
-      x: (dot.x + row[index + 1].x) / 2,
-      y: dot.y,
-    })),
-    {
-      x: row[row.length - 1].x + CELL_HALF_WIDTH,
-      y: row[0].y,
-    },
-  ];
-
-  return direction === 1 ? gaps : [...gaps].reverse();
-}
-
-function getRowTraceDots(row, direction) {
-  return direction === 1 ? row : [...row].reverse();
-}
-
-function getRowTraceSide(rowIndex) {
-  return rowIndex % 2 === 0 ? -1 : 1;
-}
-
-function addTraceTurnAroundDot(segments, dot, start, end, side, id) {
-  const apex = {
-    x: dot.x,
-    y: dot.y + side * TURN_RADIUS,
-  };
-
-  addTraceSegment(
-    segments,
-    start,
-    {
-      x: start.x,
-      y: apex.y,
-    },
-    apex,
-    `${id}-in`,
-  );
-  addTraceSegment(
-    segments,
-    apex,
-    {
-      x: end.x,
-      y: apex.y,
-    },
-    end,
-    `${id}-out`,
-  );
-}
-
-function addTraceRow(segments, row, rowIndex, direction) {
-  const gaps = getRowTraceGaps(row, direction);
-  const dots = getRowTraceDots(row, direction);
-  const side = getRowTraceSide(rowIndex);
-
-  dots.forEach((dot, index) => {
-    addTraceTurnAroundDot(
-      segments,
-      dot,
-      gaps[index],
-      gaps[index + 1],
-      side,
-      `trace-row-${rowIndex}-cell-${index}`,
-    );
-  });
-
+function dotAnchors(dot, radius = ANCHOR_RADIUS) {
   return {
-    start: gaps[0],
-    end: gaps[gaps.length - 1],
+    top: { x: dot.x, y: dot.y - radius },
+    right: { x: dot.x + radius, y: dot.y },
+    bottom: { x: dot.x, y: dot.y + radius },
+    left: { x: dot.x - radius, y: dot.y },
   };
 }
 
-function addTraceRowConnector(segments, start, end, rowIndex) {
-  const midpoint = {
-    x: (start.x + end.x) / 2,
-    y: (start.y + end.y) / 2,
-  };
-  const side = start.x > end.x ? 1 : -1;
+function getAnchorRoute(dot, direction, side) {
+  const anchors = dotAnchors(dot);
 
-  addTraceSegment(
+  if (direction === 1) {
+    return side === "top"
+      ? [anchors.left, anchors.top, anchors.right]
+      : [anchors.left, anchors.bottom, anchors.right];
+  }
+
+  return side === "top"
+    ? [anchors.right, anchors.top, anchors.left]
+    : [anchors.right, anchors.bottom, anchors.left];
+}
+
+function addAnchorLoop(segments, entry, crown, exit, id) {
+  addAnchorSegment(
+    segments,
+    entry,
+    { x: entry.x, y: crown.y },
+    crown,
+    `${id}-entry`,
+  );
+  addAnchorSegment(
+    segments,
+    crown,
+    { x: exit.x, y: crown.y },
+    exit,
+    `${id}-exit`,
+  );
+}
+
+function addAnchorConnector(segments, start, end, id, side = 0) {
+  addAnchorSegment(
     segments,
     start,
     {
-      x: midpoint.x + side * TURN_RADIUS,
-      y: midpoint.y,
+      x: (start.x + end.x) / 2 + side * ANCHOR_RADIUS,
+      y: (start.y + end.y) / 2,
     },
     end,
-    `trace-row-${rowIndex}-connector`,
+    id,
   );
 }
 
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
-  let previousRowEnd = null;
+  let cursor = null;
 
   rows.forEach((row, rowIndex) => {
     const direction = rowIndex % 2 === 0 ? 1 : -1;
-    const [start] = getRowTraceGaps(row, direction);
+    const side = rowIndex % 2 === 0 ? "top" : "bottom";
+    const orderedDots = direction === 1 ? row : [...row].reverse();
 
-    if (previousRowEnd) {
-      addTraceRowConnector(segments, previousRowEnd, start, rowIndex);
-    }
+    orderedDots.forEach((dot, dotIndex) => {
+      const [entry, crown, exit] = getAnchorRoute(dot, direction, side);
 
-    const { end } = addTraceRow(segments, row, rowIndex, direction);
+      if (cursor) {
+        addAnchorConnector(
+          segments,
+          cursor,
+          entry,
+          `anchor-row-${rowIndex}-dot-${dotIndex}-join`,
+          dotIndex === 0 ? direction * -1 : 0,
+        );
+      }
 
-    previousRowEnd = end;
+      addAnchorLoop(
+        segments,
+        entry,
+        crown,
+        exit,
+        `anchor-row-${rowIndex}-dot-${dotIndex}`,
+      );
+
+      cursor = exit;
+    });
   });
 
   return segments;
