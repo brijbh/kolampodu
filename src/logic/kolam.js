@@ -35,7 +35,11 @@ function getRows(pattern) {
   let dotIndex = 0;
 
   return pattern.map((count) => {
-    const row = dots.slice(dotIndex, dotIndex + count);
+    const row = dots.slice(dotIndex, dotIndex + count).map((dot, col) => ({
+      ...dot,
+      col,
+    }));
+
     dotIndex += count;
     return row;
   });
@@ -110,6 +114,26 @@ function addConnector(segments, start, end, id) {
   ));
 }
 
+function addSmoothConnector(segments, start, end, id, curve = 0) {
+  if (start.x === end.x && start.y === end.y) {
+    return;
+  }
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy) || 1;
+
+  segments.push(toSegment(
+    start,
+    {
+      x: (start.x + end.x) / 2 - (dy / length) * curve,
+      y: (start.y + end.y) / 2 + (dx / length) * curve,
+    },
+    end,
+    id,
+  ));
+}
+
 function getEntry(dot, direction) {
   return direction === 1 ? compass(dot).west : compass(dot).east;
 }
@@ -132,6 +156,58 @@ function addRowDrop(segments, start, end, id, side) {
   ));
 }
 
+function getTriangleTurn(rowIndex, dot, rowLength) {
+  const mirroredCol = Math.min(dot.col, rowLength - 1 - dot.col);
+
+  return (rowIndex + mirroredCol) % 2 === 0 ? "upper" : "lower";
+}
+
+function addTriangleLoop(segments, dot, direction, turn, id) {
+  const points = compass(dot);
+  const route = direction === 1
+    ? turn === "upper"
+      ? [
+        ["west", "northWest", "north"],
+        ["north", "northEast", "east"],
+      ]
+      : [
+        ["west", "southWest", "south"],
+        ["south", "southEast", "east"],
+      ]
+    : turn === "upper"
+      ? [
+        ["east", "northEast", "north"],
+        ["north", "northWest", "west"],
+      ]
+      : [
+        ["east", "southEast", "south"],
+        ["south", "southWest", "west"],
+      ];
+
+  route.forEach(([start, control, end], index) => {
+    segments.push(toSegment(
+      points[start],
+      points[control],
+      points[end],
+      `${id}-loop-${index}`,
+    ));
+  });
+}
+
+function addTriangleRowDrop(segments, start, end, id, side) {
+  segments.push(toSegment(
+    start,
+    {
+      x: side === "right"
+        ? Math.max(start.x, end.x) + LOOP_RADIUS * 0.75
+        : Math.min(start.x, end.x) - LOOP_RADIUS * 0.75,
+      y: (start.y + end.y) / 2,
+    },
+    end,
+    id,
+  ));
+}
+
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
@@ -143,7 +219,7 @@ function buildHandcraftedSikkuSegments(pattern) {
     const rowEntry = getEntry(orderedDots[0], direction);
 
     if (cursor) {
-      addRowDrop(
+      addTriangleRowDrop(
         segments,
         cursor,
         rowEntry,
@@ -156,51 +232,25 @@ function buildHandcraftedSikkuSegments(pattern) {
       const entry = getEntry(dot, direction);
 
       if (cursor && (cursor.x !== entry.x || cursor.y !== entry.y)) {
-        addConnector(segments, cursor, entry, `row-${rowIndex}-dot-${dotIndex}-join`);
+        addSmoothConnector(
+          segments,
+          cursor,
+          entry,
+          `row-${rowIndex}-dot-${dotIndex}-join`,
+        );
       }
 
-      addLoop(
+      addTriangleLoop(
         segments,
         dot,
         direction,
-        (rowIndex + dotIndex) % 2 === 0 ? "upper" : "lower",
+        getTriangleTurn(rowIndex, dot, row.length),
         `row-${rowIndex}-dot-${dotIndex}`,
       );
 
       cursor = getExit(dot, direction);
     });
   });
-
-  if (segments.length > 0) {
-    const start = segments[0].start;
-
-    segments.push(
-      toSegment(
-        cursor,
-        {
-          x: cursor.x,
-          y: cursor.y + ROW_DROP_HANDLE,
-        },
-        {
-          x: start.x,
-          y: cursor.y + ROW_DROP_HANDLE,
-        },
-        "outer-return-bottom",
-      ),
-      toSegment(
-        {
-          x: start.x,
-          y: cursor.y + ROW_DROP_HANDLE,
-        },
-        {
-          x: start.x - ROW_DROP_HANDLE,
-          y: (cursor.y + start.y) / 2,
-        },
-        start,
-        "outer-return-left",
-      ),
-    );
-  }
 
   return segments;
 }
