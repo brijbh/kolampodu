@@ -63,7 +63,7 @@ function getDistance(firstPoint, secondPoint) {
 }
 
 function getDotSlowdown(segment, dots) {
-  if (!dots.length) {
+  if (!segment || !dots.length) {
     return 1;
   }
 
@@ -133,6 +133,19 @@ export function getContinuousDrawState({
   progress,
   timingOptions,
 }) {
+  if (!segments.length) {
+    return {
+      completedLength: 0,
+      activeStartLength: 0,
+      activeEndLength: 0,
+      activeIndex: -1,
+      activeProgress: 1,
+      leadingPoint: null,
+      tipStartLength: 0,
+      tipEndLength: 0,
+    };
+  }
+
   const elapsed = clampProgress(progress) * Math.max(1, timingOptions?.duration ?? DEFAULT_DURATION);
   const timings = getSegmentTimings(segments, {
     ...timingOptions,

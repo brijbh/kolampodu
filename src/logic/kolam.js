@@ -1,6 +1,11 @@
 import { DOT_SPACING, generateDotGrid } from "./grid";
 
-const SUPPORTED_PATTERN = "5,4,3,2,1";
+const HANDCRAFTED_PATTERN = "5,4,3,2,1";
+const PLACEHOLDER_PATTERNS = new Set([
+  "5,5,5,5,5",
+  "1,2,3,4,3,2,1",
+  "3,5,5,5,3",
+]);
 const LOOP_RADIUS = DOT_SPACING * 0.36;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
 
@@ -13,8 +18,16 @@ function toSegment(start, control, end, id) {
   };
 }
 
-function isSupportedPattern(pattern) {
-  return pattern.join(",") === SUPPORTED_PATTERN;
+function getPatternKey(pattern) {
+  return pattern.join(",");
+}
+
+function isHandcraftedPattern(pattern) {
+  return getPatternKey(pattern) === HANDCRAFTED_PATTERN;
+}
+
+function isPlaceholderPattern(pattern) {
+  return PLACEHOLDER_PATTERNS.has(getPatternKey(pattern));
 }
 
 function getRows(pattern) {
@@ -192,21 +205,58 @@ function buildHandcraftedSikkuSegments(pattern) {
   return segments;
 }
 
-function buildNoopSegments(pattern) {
-  const [dot] = generateDotGrid(pattern);
-  const point = dot ?? { x: 0, y: 0 };
+function buildTemporaryLoopPlaceholderSegments(pattern) {
+  const rows = getRows(pattern).filter((row) => row.length > 0);
+  const segments = [];
+  let cursor = null;
 
-  return [
-    toSegment(point, point, point, "paused-generic-generation"),
-  ];
+  rows.forEach((row, rowIndex) => {
+    const direction = rowIndex % 2 === 0 ? 1 : -1;
+    const orderedDots = direction === 1 ? row : [...row].reverse();
+    const rowEntry = getEntry(orderedDots[0], direction);
+
+    if (cursor) {
+      addRowDrop(
+        segments,
+        cursor,
+        rowEntry,
+        `placeholder-row-${rowIndex}-drop`,
+        direction === 1 ? "left" : "right",
+      );
+    }
+
+    orderedDots.forEach((dot, dotIndex) => {
+      const entry = getEntry(dot, direction);
+
+      if (cursor) {
+        addConnector(segments, cursor, entry, `placeholder-row-${rowIndex}-dot-${dotIndex}-join`);
+      }
+
+      addLoop(
+        segments,
+        dot,
+        direction,
+        "upper",
+        `placeholder-row-${rowIndex}-dot-${dotIndex}`,
+      );
+
+      cursor = getExit(dot, direction);
+    });
+  });
+
+  return segments;
 }
 
 export function buildKolamSegments(pattern) {
-  if (!isSupportedPattern(pattern)) {
-    return buildNoopSegments(pattern);
+  if (isHandcraftedPattern(pattern)) {
+    return buildHandcraftedSikkuSegments(pattern);
   }
 
-  return buildHandcraftedSikkuSegments(pattern);
+  if (isPlaceholderPattern(pattern)) {
+    return buildTemporaryLoopPlaceholderSegments(pattern);
+  }
+
+  return [];
 }
 
 export function buildKolamPath(pattern) {

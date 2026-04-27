@@ -10,6 +10,16 @@ import {
 import { getViewBoxBounds } from "../logic/bounds";
 import { buildSegmentPath } from "../logic/kolam";
 
+function getSafePathLength(pathElement) {
+  try {
+    const length = pathElement?.getTotalLength() ?? 0;
+
+    return Number.isFinite(length) ? length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export default function KolamCanvas({ pattern, path, segments, progress, showHint }) {
   const dots = generateDotGrid(pattern);
   const pathRef = useRef(null);
@@ -47,9 +57,11 @@ export default function KolamCanvas({ pattern, path, segments, progress, showHin
   const strokeMaterial = getStrokeMaterial(progress, drawState.activeProgress);
 
   useLayoutEffect(() => {
-    setPathLength(pathRef.current?.getTotalLength() ?? 0);
+    segmentRefs.current = segmentRefs.current.slice(0, segments.length);
+
+    setPathLength(getSafePathLength(pathRef.current));
     setSegmentLengths(
-      segments.map((_, index) => segmentRefs.current[index]?.getTotalLength() ?? 0),
+      segments.map((_, index) => getSafePathLength(segmentRefs.current[index])),
     );
   }, [path, segments]);
 
