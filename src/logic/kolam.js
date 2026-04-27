@@ -6,8 +6,7 @@ const PLACEHOLDER_PATTERNS = new Set([
   "1,2,3,4,3,2,1",
   "3,5,5,5,3",
 ]);
-const TRACE_CLEARANCE = 24;
-const TRACE_CONTROL_OFFSET = TRACE_CLEARANCE * 2;
+const TURN_RADIUS = 24;
 const CELL_HALF_WIDTH = DOT_SPACING * 0.5;
 const LOOP_RADIUS = DOT_SPACING * 0.36;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
@@ -174,20 +173,46 @@ function getRowTraceSide(rowIndex) {
   return rowIndex % 2 === 0 ? -1 : 1;
 }
 
+function addTraceTurnAroundDot(segments, dot, start, end, side, id) {
+  const apex = {
+    x: dot.x,
+    y: dot.y + side * TURN_RADIUS,
+  };
+
+  addTraceSegment(
+    segments,
+    start,
+    {
+      x: start.x,
+      y: apex.y,
+    },
+    apex,
+    `${id}-in`,
+  );
+  addTraceSegment(
+    segments,
+    apex,
+    {
+      x: end.x,
+      y: apex.y,
+    },
+    end,
+    `${id}-out`,
+  );
+}
+
 function addTraceRow(segments, row, rowIndex, direction) {
   const gaps = getRowTraceGaps(row, direction);
   const dots = getRowTraceDots(row, direction);
   const side = getRowTraceSide(rowIndex);
 
   dots.forEach((dot, index) => {
-    addTraceSegment(
+    addTraceTurnAroundDot(
       segments,
+      dot,
       gaps[index],
-      {
-        x: (gaps[index].x + gaps[index + 1].x) / 2,
-        y: dot.y + side * TRACE_CONTROL_OFFSET,
-      },
       gaps[index + 1],
+      side,
       `trace-row-${rowIndex}-cell-${index}`,
     );
   });
@@ -209,7 +234,7 @@ function addTraceRowConnector(segments, start, end, rowIndex) {
     segments,
     start,
     {
-      x: midpoint.x + side * TRACE_CONTROL_OFFSET,
+      x: midpoint.x + side * TURN_RADIUS,
       y: midpoint.y,
     },
     end,
