@@ -6,8 +6,10 @@ const PLACEHOLDER_PATTERNS = new Set([
   "1,2,3,4,3,2,1",
   "3,5,5,5,3",
 ]);
+const OUTER_RADIUS = 24;
+const INNER_RADIUS = OUTER_RADIUS * 0.55;
+const INNER_LAYER_OFFSET = OUTER_RADIUS + INNER_RADIUS;
 const LOOP_RADIUS = DOT_SPACING * 0.36;
-const INNER_LOOP_RADIUS = DOT_SPACING * 0.2;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
 
 function toSegment(start, control, end, id) {
@@ -115,32 +117,24 @@ function addConnector(segments, start, end, id) {
   ));
 }
 
-function addSmoothConnector(segments, start, end, id, curve = 0) {
-  if (start.x === end.x && start.y === end.y) {
-    return;
-  }
-
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const length = Math.hypot(dx, dy) || 1;
-
-  segments.push(toSegment(
-    start,
-    {
-      x: (start.x + end.x) / 2 - (dy / length) * curve,
-      y: (start.y + end.y) / 2 + (dx / length) * curve,
-    },
-    end,
-    id,
-  ));
-}
-
 function getEntry(dot, direction) {
   return direction === 1 ? compass(dot).west : compass(dot).east;
 }
 
 function getExit(dot, direction) {
   return direction === 1 ? compass(dot).east : compass(dot).west;
+}
+
+function getTriangleEntry(dot, direction) {
+  return direction === 1
+    ? triangleCompass(dot, OUTER_RADIUS).west
+    : triangleCompass(dot, OUTER_RADIUS).east;
+}
+
+function getTriangleExit(dot, direction) {
+  return direction === 1
+    ? triangleCompass(dot, OUTER_RADIUS).east
+    : triangleCompass(dot, OUTER_RADIUS).west;
 }
 
 function addRowDrop(segments, start, end, id, side) {
@@ -157,14 +151,16 @@ function addRowDrop(segments, start, end, id, side) {
   ));
 }
 
-function getTriangleTurn(rowIndex, dot, rowLength) {
-  const mirroredCol = Math.min(dot.col, rowLength - 1 - dot.col);
+function getTriangleTurn(rowIndex) {
+  return rowIndex % 2 === 0 ? "upper" : "lower";
+}
 
-  return (rowIndex + mirroredCol) % 2 === 0 ? "upper" : "lower";
+function triangleCompass(dot, radius) {
+  return compass(dot, radius);
 }
 
 function addTriangleLoop(segments, dot, direction, turn, id) {
-  const points = compass(dot);
+  const points = triangleCompass(dot, OUTER_RADIUS);
   const route = direction === 1
     ? turn === "upper"
       ? [
@@ -200,8 +196,8 @@ function addTriangleRowDrop(segments, start, end, id, side) {
     start,
     {
       x: side === "right"
-        ? Math.max(start.x, end.x) + LOOP_RADIUS * 0.75
-        : Math.min(start.x, end.x) - LOOP_RADIUS * 0.75,
+        ? Math.max(start.x, end.x) + OUTER_RADIUS * 0.75
+        : Math.min(start.x, end.x) - OUTER_RADIUS * 0.75,
       y: (start.y + end.y) / 2,
     },
     end,
@@ -211,18 +207,18 @@ function addTriangleRowDrop(segments, start, end, id, side) {
 
 function getInnerEntry(center, direction) {
   return direction === 1
-    ? compass(center, INNER_LOOP_RADIUS).west
-    : compass(center, INNER_LOOP_RADIUS).east;
+    ? triangleCompass(center, INNER_RADIUS).west
+    : triangleCompass(center, INNER_RADIUS).east;
 }
 
 function getInnerExit(center, direction) {
   return direction === 1
-    ? compass(center, INNER_LOOP_RADIUS).west
-    : compass(center, INNER_LOOP_RADIUS).east;
+    ? triangleCompass(center, INNER_RADIUS).west
+    : triangleCompass(center, INNER_RADIUS).east;
 }
 
 function addInnerLoop(segments, center, direction, id) {
-  const points = compass(center, INNER_LOOP_RADIUS);
+  const points = triangleCompass(center, INNER_RADIUS);
   const route = direction === 1
     ? [
       ["west", "northWest", "north"],
@@ -247,6 +243,29 @@ function addInnerLoop(segments, center, direction, id) {
   });
 }
 
+function addTriangleConnector(segments, start, end, id, offset = 0) {
+  if (start.x === end.x && start.y === end.y) {
+    return;
+  }
+
+  segments.push(toSegment(
+    start,
+    {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2 + offset,
+    },
+    end,
+    id,
+  ));
+}
+
+function getInnerLayerCenter(dot, nextDot, turn) {
+  return {
+    x: (dot.x + nextDot.x) / 2,
+    y: (dot.y + nextDot.y) / 2 + (turn === "upper" ? INNER_LAYER_OFFSET : -INNER_LAYER_OFFSET),
+  };
+}
+
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
@@ -255,7 +274,7 @@ function buildHandcraftedSikkuSegments(pattern) {
   rows.forEach((row, rowIndex) => {
     const direction = rowIndex % 2 === 0 ? 1 : -1;
     const orderedDots = direction === 1 ? row : [...row].reverse();
-    const rowEntry = getEntry(orderedDots[0], direction);
+    const rowEntry = getTriangleEntry(orderedDots[0], direction);
 
     if (cursor) {
       addTriangleRowDrop(
@@ -268,10 +287,10 @@ function buildHandcraftedSikkuSegments(pattern) {
     }
 
     orderedDots.forEach((dot, dotIndex) => {
-      const entry = getEntry(dot, direction);
+      const entry = getTriangleEntry(dot, direction);
 
       if (cursor && (cursor.x !== entry.x || cursor.y !== entry.y)) {
-        addSmoothConnector(
+        addTriangleConnector(
           segments,
           cursor,
           entry,
@@ -283,25 +302,24 @@ function buildHandcraftedSikkuSegments(pattern) {
         segments,
         dot,
         direction,
-        getTriangleTurn(rowIndex, dot, row.length),
+        getTriangleTurn(rowIndex),
         `row-${rowIndex}-dot-${dotIndex}`,
       );
 
-      cursor = getExit(dot, direction);
+      cursor = getTriangleExit(dot, direction);
 
       if (dotIndex < orderedDots.length - 1) {
         const nextDot = orderedDots[dotIndex + 1];
-        const innerCenter = {
-          x: (dot.x + nextDot.x) / 2,
-          y: dot.y,
-        };
+        const turn = getTriangleTurn(rowIndex);
+        const innerCenter = getInnerLayerCenter(dot, nextDot, turn);
         const innerEntry = getInnerEntry(innerCenter, direction);
 
-        addSmoothConnector(
+        addTriangleConnector(
           segments,
           cursor,
           innerEntry,
           `row-${rowIndex}-dot-${dotIndex}-inner-entry`,
+          turn === "upper" ? INNER_RADIUS : -INNER_RADIUS,
         );
         addInnerLoop(
           segments,
