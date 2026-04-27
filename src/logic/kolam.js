@@ -1,8 +1,8 @@
 import { DOT_SPACING, generateDotGrid } from "./grid";
 
-const DOT_CLEARANCE = DOT_SPACING * 0.44;
-const CHANNEL_HALF_WIDTH = DOT_SPACING * 0.5;
-const OUTER_MARGIN = DOT_SPACING * 0.72;
+const SUPPORTED_PATTERN = "5,4,3,2,1";
+const LOOP_RADIUS = DOT_SPACING * 0.36;
+const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
 
 function toSegment(start, control, end, id) {
   return {
@@ -13,172 +13,200 @@ function toSegment(start, control, end, id) {
   };
 }
 
+function isSupportedPattern(pattern) {
+  return pattern.join(",") === SUPPORTED_PATTERN;
+}
+
 function getRows(pattern) {
-  const max = pattern.length ? Math.max(...pattern) : 0;
+  const dots = generateDotGrid(pattern);
+  let dotIndex = 0;
 
-  return pattern.map((count, rowIndex) => {
-    const offset = (max - count) / 2;
-
-    return Array.from({ length: count }, (_, colIndex) => ({
-      x: (colIndex + offset) * DOT_SPACING,
-      y: rowIndex * DOT_SPACING,
-      row: rowIndex,
-      col: colIndex,
-    }));
+  return pattern.map((count) => {
+    const row = dots.slice(dotIndex, dotIndex + count);
+    dotIndex += count;
+    return row;
   });
 }
 
-function getRowEdge(row, side) {
-  const first = row[0];
-  const last = row[row.length - 1];
-
+function compass(dot) {
   return {
-    x: side === "left"
-      ? first.x - CHANNEL_HALF_WIDTH
-      : last.x + CHANNEL_HALF_WIDTH,
-    y: first.y,
+    north: { x: dot.x, y: dot.y - LOOP_RADIUS },
+    east: { x: dot.x + LOOP_RADIUS, y: dot.y },
+    south: { x: dot.x, y: dot.y + LOOP_RADIUS },
+    west: { x: dot.x - LOOP_RADIUS, y: dot.y },
+    northEast: { x: dot.x + LOOP_RADIUS, y: dot.y - LOOP_RADIUS },
+    southEast: { x: dot.x + LOOP_RADIUS, y: dot.y + LOOP_RADIUS },
+    southWest: { x: dot.x - LOOP_RADIUS, y: dot.y + LOOP_RADIUS },
+    northWest: { x: dot.x - LOOP_RADIUS, y: dot.y - LOOP_RADIUS },
   };
 }
 
-function addDotWrapSegments(segments, dot, cursor, direction, dotIndex, rowIndex) {
-  const side = dotIndex % 2 === 0 ? -1 : 1;
-  const shoulder = {
-    x: dot.x,
-    y: dot.y + side * DOT_CLEARANCE,
-  };
-  const nextChannel = {
-    x: dot.x + direction * CHANNEL_HALF_WIDTH,
-    y: dot.y,
-  };
+function addLoop(segments, dot, direction, turn, id) {
+  const points = compass(dot);
+  const route = direction === 1
+    ? turn === "upper"
+      ? [
+        ["west", "northWest", "north"],
+        ["north", "northEast", "east"],
+        ["east", "southEast", "south"],
+        ["south", "southEast", "east"],
+      ]
+      : [
+        ["west", "southWest", "south"],
+        ["south", "southEast", "east"],
+        ["east", "northEast", "north"],
+        ["north", "northEast", "east"],
+      ]
+    : turn === "upper"
+      ? [
+        ["east", "northEast", "north"],
+        ["north", "northWest", "west"],
+        ["west", "southWest", "south"],
+        ["south", "southWest", "west"],
+      ]
+      : [
+        ["east", "southEast", "south"],
+        ["south", "southWest", "west"],
+        ["west", "northWest", "north"],
+        ["north", "northWest", "west"],
+      ];
 
-  segments.push(
-    toSegment(
-      cursor,
-      {
-        x: cursor.x,
-        y: shoulder.y,
-      },
-      shoulder,
-      `row-${rowIndex}-dot-${dot.col}-in`,
-    ),
-    toSegment(
-      shoulder,
-      {
-        x: nextChannel.x,
-        y: shoulder.y,
-      },
-      nextChannel,
-      `row-${rowIndex}-dot-${dot.col}-out`,
-    ),
-  );
-
-  return nextChannel;
-}
-
-function addRowSegments(segments, row, rowIndex, direction) {
-  const orderedDots = direction === 1 ? row : [...row].reverse();
-  let cursor = getRowEdge(row, direction === 1 ? "left" : "right");
-
-  orderedDots.forEach((dot, dotIndex) => {
-    cursor = addDotWrapSegments(segments, dot, cursor, direction, dotIndex, rowIndex);
+  route.forEach(([start, control, end], index) => {
+    segments.push(toSegment(
+      points[start],
+      points[control],
+      points[end],
+      `${id}-loop-${index}`,
+    ));
   });
-
-  return cursor;
 }
 
-function addRowConnector(segments, start, end, rowIndex) {
-  const outward = rowIndex % 2 === 1 ? 1 : -1;
-
-  segments.push(
-    toSegment(
-      start,
-      {
-        x: outward === 1
-          ? Math.max(start.x, end.x) + OUTER_MARGIN
-          : Math.min(start.x, end.x) - OUTER_MARGIN,
-        y: (start.y + end.y) / 2,
-      },
-      end,
-      `row-${rowIndex}-connector`,
-    ),
-  );
-}
-
-function getOuterReturnSegments(start, end, dots) {
-  if (!dots.length) {
-    return [];
+function addConnector(segments, start, end, id) {
+  if (start.x === end.x && start.y === end.y) {
+    return;
   }
 
-  const minX = Math.min(...dots.map(({ x }) => x));
-  const minY = Math.min(...dots.map(({ y }) => y));
-  const maxY = Math.max(...dots.map(({ y }) => y));
-  const lowerLeft = {
-    x: minX - OUTER_MARGIN,
-    y: maxY + OUTER_MARGIN,
-  };
-  const upperLeft = {
-    x: minX - OUTER_MARGIN,
-    y: minY - OUTER_MARGIN,
-  };
+  segments.push(toSegment(
+    start,
+    {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2,
+    },
+    end,
+    id,
+  ));
+}
+
+function getEntry(dot, direction) {
+  return direction === 1 ? compass(dot).west : compass(dot).east;
+}
+
+function getExit(dot, direction) {
+  return direction === 1 ? compass(dot).east : compass(dot).west;
+}
+
+function addRowDrop(segments, start, end, id, side) {
+  segments.push(toSegment(
+    start,
+    {
+      x: side === "right"
+        ? Math.max(start.x, end.x) + ROW_DROP_HANDLE
+        : Math.min(start.x, end.x) - ROW_DROP_HANDLE,
+      y: (start.y + end.y) / 2,
+    },
+    end,
+    id,
+  ));
+}
+
+function buildHandcraftedSikkuSegments(pattern) {
+  const rows = getRows(pattern).filter((row) => row.length > 0);
+  const segments = [];
+  let cursor = null;
+
+  rows.forEach((row, rowIndex) => {
+    const direction = rowIndex % 2 === 0 ? 1 : -1;
+    const orderedDots = direction === 1 ? row : [...row].reverse();
+    const rowEntry = getEntry(orderedDots[0], direction);
+
+    if (cursor) {
+      addRowDrop(
+        segments,
+        cursor,
+        rowEntry,
+        `row-${rowIndex}-drop`,
+        direction === 1 ? "left" : "right",
+      );
+    }
+
+    orderedDots.forEach((dot, dotIndex) => {
+      const entry = getEntry(dot, direction);
+
+      if (cursor && (cursor.x !== entry.x || cursor.y !== entry.y)) {
+        addConnector(segments, cursor, entry, `row-${rowIndex}-dot-${dotIndex}-join`);
+      }
+
+      addLoop(
+        segments,
+        dot,
+        direction,
+        (rowIndex + dotIndex) % 2 === 0 ? "upper" : "lower",
+        `row-${rowIndex}-dot-${dotIndex}`,
+      );
+
+      cursor = getExit(dot, direction);
+    });
+  });
+
+  if (segments.length > 0) {
+    const start = segments[0].start;
+
+    segments.push(
+      toSegment(
+        cursor,
+        {
+          x: cursor.x,
+          y: cursor.y + ROW_DROP_HANDLE,
+        },
+        {
+          x: start.x,
+          y: cursor.y + ROW_DROP_HANDLE,
+        },
+        "outer-return-bottom",
+      ),
+      toSegment(
+        {
+          x: start.x,
+          y: cursor.y + ROW_DROP_HANDLE,
+        },
+        {
+          x: start.x - ROW_DROP_HANDLE,
+          y: (cursor.y + start.y) / 2,
+        },
+        start,
+        "outer-return-left",
+      ),
+    );
+  }
+
+  return segments;
+}
+
+function buildNoopSegments(pattern) {
+  const [dot] = generateDotGrid(pattern);
+  const point = dot ?? { x: 0, y: 0 };
 
   return [
-    toSegment(
-      end,
-      {
-        x: (end.x + lowerLeft.x) / 2,
-        y: lowerLeft.y,
-      },
-      lowerLeft,
-      "outer-lower",
-    ),
-    toSegment(
-      lowerLeft,
-      {
-        x: lowerLeft.x - DOT_CLEARANCE,
-        y: (lowerLeft.y + upperLeft.y) / 2,
-      },
-      upperLeft,
-      "outer-left",
-    ),
-    toSegment(
-      upperLeft,
-      {
-        x: upperLeft.x,
-        y: (upperLeft.y + start.y) / 2,
-      },
-      start,
-      "outer-return",
-    ),
+    toSegment(point, point, point, "paused-generic-generation"),
   ];
 }
 
 export function buildKolamSegments(pattern) {
-  const rows = getRows(pattern).filter((row) => row.length > 0);
-  const dots = generateDotGrid(pattern);
-  const segments = [];
-
-  if (!rows.length) {
-    return segments;
+  if (!isSupportedPattern(pattern)) {
+    return buildNoopSegments(pattern);
   }
 
-  const start = getRowEdge(rows[0], "left");
-  let cursor = start;
-
-  rows.forEach((row, rowIndex) => {
-    const direction = rowIndex % 2 === 0 ? 1 : -1;
-    const rowStart = getRowEdge(row, direction === 1 ? "left" : "right");
-
-    if (rowIndex > 0) {
-      addRowConnector(segments, cursor, rowStart, rowIndex);
-    }
-
-    cursor = addRowSegments(segments, row, rowIndex, direction);
-  });
-
-  return [
-    ...segments,
-    ...getOuterReturnSegments(start, cursor, dots),
-  ];
+  return buildHandcraftedSikkuSegments(pattern);
 }
 
 export function buildKolamPath(pattern) {
