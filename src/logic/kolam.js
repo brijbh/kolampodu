@@ -9,6 +9,12 @@ const PLACEHOLDER_PATTERNS = new Set([
 const ANCHOR_RADIUS = 24;
 const LOOP_RADIUS = DOT_SPACING * 0.36;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
+const ANCHOR_TURN_RULE = {
+  left: "top",
+  top: "right",
+  right: "bottom",
+  bottom: "left",
+};
 
 function toSegment(start, control, end, id) {
   return {
@@ -154,35 +160,35 @@ function dotAnchors(dot, radius = ANCHOR_RADIUS) {
   };
 }
 
-function getAnchorRoute(dot, direction, side) {
-  const anchors = dotAnchors(dot);
-
-  if (direction === 1) {
-    return side === "top"
-      ? [anchors.left, anchors.top, anchors.right]
-      : [anchors.left, anchors.bottom, anchors.right];
+function getAnchorTurnControl(start, end, entrySide) {
+  if (entrySide === "left" || entrySide === "right") {
+    return {
+      x: start.x,
+      y: end.y,
+    };
   }
 
-  return side === "top"
-    ? [anchors.right, anchors.top, anchors.left]
-    : [anchors.right, anchors.bottom, anchors.left];
+  return {
+    x: end.x,
+    y: start.y,
+  };
 }
 
-function addAnchorLoop(segments, entry, crown, exit, id) {
+function addAnchorTurn(segments, dot, entrySide, id) {
+  const exitSide = ANCHOR_TURN_RULE[entrySide];
+  const anchors = dotAnchors(dot);
+  const start = anchors[entrySide];
+  const end = anchors[exitSide];
+
   addAnchorSegment(
     segments,
-    entry,
-    { x: entry.x, y: crown.y },
-    crown,
-    `${id}-entry`,
+    start,
+    getAnchorTurnControl(start, end, entrySide),
+    end,
+    id,
   );
-  addAnchorSegment(
-    segments,
-    crown,
-    { x: exit.x, y: crown.y },
-    exit,
-    `${id}-exit`,
-  );
+
+  return exitSide;
 }
 
 function addAnchorConnector(segments, start, end, id, side = 0) {
@@ -198,18 +204,49 @@ function addAnchorConnector(segments, start, end, id, side = 0) {
   );
 }
 
+function addAnchorClosure(segments, start, end) {
+  const maxX = Math.max(
+    ...segments.flatMap((segment) => [
+      segment.start.x,
+      segment.control.x,
+      segment.end.x,
+    ]),
+  );
+  const shoulder = {
+    x: maxX + ANCHOR_RADIUS * 2,
+    y: (start.y + end.y) / 2,
+  };
+
+  addAnchorSegment(
+    segments,
+    start,
+    { x: shoulder.x, y: start.y },
+    shoulder,
+    "anchor-close-outside-entry",
+  );
+  addAnchorSegment(
+    segments,
+    shoulder,
+    { x: shoulder.x, y: end.y },
+    end,
+    "anchor-close-outside-return",
+  );
+}
+
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
   let cursor = null;
+  let firstAnchor = null;
 
   rows.forEach((row, rowIndex) => {
     const direction = rowIndex % 2 === 0 ? 1 : -1;
-    const side = rowIndex % 2 === 0 ? "top" : "bottom";
     const orderedDots = direction === 1 ? row : [...row].reverse();
+    const rowEntrySide = direction === 1 ? "left" : "right";
+    let entrySide = rowEntrySide;
 
     orderedDots.forEach((dot, dotIndex) => {
-      const [entry, crown, exit] = getAnchorRoute(dot, direction, side);
+      const entry = dotAnchors(dot)[entrySide];
 
       if (cursor) {
         addAnchorConnector(
@@ -221,17 +258,31 @@ function buildHandcraftedSikkuSegments(pattern) {
         );
       }
 
-      addAnchorLoop(
+      if (!firstAnchor) {
+        firstAnchor = entry;
+      }
+
+      entrySide = addAnchorTurn(
         segments,
-        entry,
-        crown,
-        exit,
-        `anchor-row-${rowIndex}-dot-${dotIndex}`,
+        dot,
+        entrySide,
+        `anchor-row-${rowIndex}-dot-${dotIndex}-turn-0`,
+      );
+      entrySide = addAnchorTurn(
+        segments,
+        dot,
+        entrySide,
+        `anchor-row-${rowIndex}-dot-${dotIndex}-turn-1`,
       );
 
-      cursor = exit;
+      cursor = dotAnchors(dot)[entrySide];
+      entrySide = rowEntrySide;
     });
   });
+
+  if (cursor && firstAnchor) {
+    addAnchorClosure(segments, cursor, firstAnchor);
+  }
 
   return segments;
 }
