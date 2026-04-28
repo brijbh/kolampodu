@@ -9,11 +9,17 @@ const PLACEHOLDER_PATTERNS = new Set([
 const ANCHOR_RADIUS = 24;
 const LOOP_RADIUS = DOT_SPACING * 0.36;
 const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
-const ANCHOR_TURN_RULE = {
+const LEFT_TURN_RULE = {
   left: "top",
   top: "right",
   right: "bottom",
   bottom: "left",
+};
+const RIGHT_TURN_RULE = {
+  left: "bottom",
+  bottom: "right",
+  right: "top",
+  top: "left",
 };
 
 function toSegment(start, control, end, id) {
@@ -174,8 +180,12 @@ function getAnchorTurnControl(start, end, entrySide) {
   };
 }
 
-function addAnchorTurn(segments, dot, entrySide, id) {
-  const exitSide = ANCHOR_TURN_RULE[entrySide];
+function getTraversalRule(rowIndex, col) {
+  return (rowIndex + col) % 2 === 0 ? LEFT_TURN_RULE : RIGHT_TURN_RULE;
+}
+
+function addAnchorTurn(segments, dot, entrySide, turnRule, id) {
+  const exitSide = turnRule[entrySide];
   const anchors = dotAnchors(dot);
   const start = anchors[entrySide];
   const end = anchors[exitSide];
@@ -204,40 +214,10 @@ function addAnchorConnector(segments, start, end, id, side = 0) {
   );
 }
 
-function addAnchorClosure(segments, start, end) {
-  const maxX = Math.max(
-    ...segments.flatMap((segment) => [
-      segment.start.x,
-      segment.control.x,
-      segment.end.x,
-    ]),
-  );
-  const shoulder = {
-    x: maxX + ANCHOR_RADIUS * 2,
-    y: (start.y + end.y) / 2,
-  };
-
-  addAnchorSegment(
-    segments,
-    start,
-    { x: shoulder.x, y: start.y },
-    shoulder,
-    "anchor-close-outside-entry",
-  );
-  addAnchorSegment(
-    segments,
-    shoulder,
-    { x: shoulder.x, y: end.y },
-    end,
-    "anchor-close-outside-return",
-  );
-}
-
 function buildHandcraftedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
   const segments = [];
   let cursor = null;
-  let firstAnchor = null;
 
   rows.forEach((row, rowIndex) => {
     const direction = rowIndex % 2 === 0 ? 1 : -1;
@@ -246,6 +226,7 @@ function buildHandcraftedSikkuSegments(pattern) {
     let entrySide = rowEntrySide;
 
     orderedDots.forEach((dot, dotIndex) => {
+      const turnRule = getTraversalRule(rowIndex, dot.col);
       const entry = dotAnchors(dot)[entrySide];
 
       if (cursor) {
@@ -258,20 +239,18 @@ function buildHandcraftedSikkuSegments(pattern) {
         );
       }
 
-      if (!firstAnchor) {
-        firstAnchor = entry;
-      }
-
       entrySide = addAnchorTurn(
         segments,
         dot,
         entrySide,
+        turnRule,
         `anchor-row-${rowIndex}-dot-${dotIndex}-turn-0`,
       );
       entrySide = addAnchorTurn(
         segments,
         dot,
         entrySide,
+        turnRule,
         `anchor-row-${rowIndex}-dot-${dotIndex}-turn-1`,
       );
 
@@ -279,10 +258,6 @@ function buildHandcraftedSikkuSegments(pattern) {
       entrySide = rowEntrySide;
     });
   });
-
-  if (cursor && firstAnchor) {
-    addAnchorClosure(segments, cursor, firstAnchor);
-  }
 
   return segments;
 }
