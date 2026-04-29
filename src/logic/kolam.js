@@ -1,33 +1,31 @@
-import { DOT_SPACING, generateDotGrid } from "./grid";
+import { DOT_SPACING, generateDotGrid, getPatternWidth } from "./grid";
 
-const CELL_INSET = DOT_SPACING * 0.3;
-const CELL_BEND = DOT_SPACING * 0.22;
-const CELL_HANDLE = DOT_SPACING * 0.42;
-const CONNECTOR_BEND = DOT_SPACING * 0.72;
-const SUPPORTED_PATTERNS = new Set([
-  "5,4,3,2,1",
-  "5,5,5,5,5",
-  "1,2,3,4,3,2,1",
-  "3,5,5,5,3",
-]);
-
-function toCubicSegment(start, control1, control2, end, id) {
-  return {
-    id,
-    start,
-    control: {
-      x: (control1.x + control2.x) / 2,
-      y: (control1.y + control2.y) / 2,
-    },
-    control1,
-    control2,
-    end,
-    command: "C",
-  };
-}
+const OPEN = 1;
+const CLOSED = 0;
+const TARGET_OPEN_RATIO = 0.55;
+const MAX_SIMULATION_STEPS = 900;
+const OPTIMIZATION_PASSES = 220;
+const DIRECTIONS = [
+  { name: "east", row: 0, col: 1 },
+  { name: "south", row: 1, col: 0 },
+  { name: "west", row: 0, col: -1 },
+  { name: "north", row: -1, col: 0 },
+];
 
 function getPatternKey(pattern) {
   return pattern.join(",");
+}
+
+function createRandom(seedText) {
+  let seed = [...seedText].reduce(
+    (hash, char) => ((hash << 5) - hash + char.charCodeAt(0)) >>> 0,
+    2166136261,
+  );
+
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
 }
 
 function getRows(pattern) {
@@ -46,315 +44,417 @@ function getRows(pattern) {
   });
 }
 
-function normalize(vector) {
-  const length = Math.hypot(vector.x, vector.y);
+function createGateMatrix(pattern, random) {
+  const rowCount = pattern.length + 1;
+  const colCount = getPatternWidth(pattern) + 1;
 
-  if (length === 0) {
-    return { x: 0, y: 0 };
-  }
-
-  return {
-    x: vector.x / length,
-    y: vector.y / length,
-  };
+  return Array.from({ length: rowCount }, (_, row) => (
+    Array.from({ length: colCount }, (_, col) => (
+      row === 0 || col === 0 || row === rowCount - 1 || col === colCount - 1
+        ? CLOSED
+        : random() < TARGET_OPEN_RATIO ? OPEN : CLOSED
+    ))
+  ));
 }
 
-function addVector(point, firstVector, firstScale, secondVector = null, secondScale = 0) {
-  return {
-    x: point.x + firstVector.x * firstScale + (secondVector?.x ?? 0) * secondScale,
-    y: point.y + firstVector.y * firstScale + (secondVector?.y ?? 0) * secondScale,
-  };
+function cloneGates(gates) {
+  return gates.map((row) => [...row]);
 }
 
-function moveToward(point, target, distance) {
-  return addVector(
-    point,
-    normalize({
-      x: target.x - point.x,
-      y: target.y - point.y,
-    }),
-    distance,
-  );
-}
-
-function getCellCenter(cell) {
-  return {
-    x: (
-      cell.topLeft.x
-      + cell.topRight.x
-      + cell.bottomRight.x
-      + cell.bottomLeft.x
-    ) / 4,
-    y: (
-      cell.topLeft.y
-      + cell.topRight.y
-      + cell.bottomRight.y
-      + cell.bottomLeft.y
-    ) / 4,
-  };
-}
-
-function getBounds(points) {
-  return points.reduce((bounds, point) => ({
-    minX: Math.min(bounds.minX, point.x),
-    minY: Math.min(bounds.minY, point.y),
-    maxX: Math.max(bounds.maxX, point.x),
-    maxY: Math.max(bounds.maxY, point.y),
-  }), {
-    minX: points[0]?.x ?? 0,
-    minY: points[0]?.y ?? 0,
-    maxX: points[0]?.x ?? 0,
-    maxY: points[0]?.y ?? 0,
-  });
-}
-
-function getPatternCenter(rows) {
-  const bounds = getBounds(rows.flat());
-
-  return {
-    x: (bounds.minX + bounds.maxX) / 2,
-    y: (bounds.minY + bounds.maxY) / 2,
-  };
-}
-
-function buildCells(rows) {
-  const cells = [];
-
-  rows.forEach((topRow, rowIndex) => {
-    const bottomRow = rows[rowIndex + 1];
-
-    if (!bottomRow) {
-      return;
-    }
-
-    const cellCount = Math.min(topRow.length, bottomRow.length) - 1;
-
-    for (let col = 0; col < cellCount; col += 1) {
-      cells.push({
-        id: `cell-${rowIndex}-${col}`,
-        row: rowIndex,
-        col,
-        topLeft: topRow[col],
-        topRight: topRow[col + 1],
-        bottomRight: bottomRow[col + 1],
-        bottomLeft: bottomRow[col],
-      });
-    }
-  });
-
-  return cells;
-}
-
-function getCellCurveFrame(cell) {
-  const isCurveA = (cell.row + cell.col) % 2 === 0;
-  const startCorner = isCurveA ? cell.topLeft : cell.topRight;
-  const endCorner = isCurveA ? cell.bottomRight : cell.bottomLeft;
-  const center = getCellCenter(cell);
-  const diagonal = normalize({
-    x: endCorner.x - startCorner.x,
-    y: endCorner.y - startCorner.y,
-  });
-
-  return {
-    isCurveA,
-    center,
-    diagonal,
-    normal: {
-      x: -diagonal.y,
-      y: diagonal.x,
-    },
-    start: moveToward(startCorner, center, CELL_INSET),
-    end: moveToward(endCorner, center, CELL_INSET),
-  };
-}
-
-function orderCells(cells) {
-  const cellsByRow = cells.reduce((groups, cell) => {
-    const row = groups.get(cell.row) ?? [];
-    row.push(cell);
-    groups.set(cell.row, row);
-    return groups;
-  }, new Map());
-
-  return [...cellsByRow.entries()].flatMap(([rowIndex, rowCells]) => {
-    const orderedCells = [...rowCells].sort((a, b) => a.col - b.col);
-
-    return rowIndex % 2 === 0 ? orderedCells : orderedCells.reverse();
-  });
-}
-
-function buildCellCurveSegment(cell, start, id) {
-  const { center, diagonal, normal, isCurveA, end } = getCellCurveFrame(cell);
-  const bend = isCurveA ? CELL_BEND : -CELL_BEND;
-  const startDirection = normalize({
-    x: center.x - start.x,
-    y: center.y - start.y,
-  });
-
-  return toCubicSegment(
-    start,
-    addVector(start, startDirection, CELL_HANDLE, normal, bend),
-    addVector(end, diagonal, -CELL_HANDLE, normal, bend),
-    end,
-    id,
-  );
-}
-
-function buildConnectorSpan(start, end, bendVector, id) {
-  const direction = normalize({
-    x: end.x - start.x,
-    y: end.y - start.y,
-  });
-
-  return toCubicSegment(
-    start,
-    addVector(start, direction, CELL_HANDLE * 0.35, bendVector, CONNECTOR_BEND * 0.45),
-    addVector(end, direction, CELL_HANDLE * -0.35, bendVector, CONNECTOR_BEND * 0.45),
-    end,
-    id,
-  );
-}
-
-function getCubicPoint(segment, progress) {
-  const inverse = 1 - progress;
-
-  return {
-    x: inverse * inverse * inverse * segment.start.x
-      + 3 * inverse * inverse * progress * segment.control1.x
-      + 3 * inverse * progress * progress * segment.control2.x
-      + progress * progress * progress * segment.end.x,
-    y: inverse * inverse * inverse * segment.start.y
-      + 3 * inverse * inverse * progress * segment.control1.y
-      + 3 * inverse * progress * progress * segment.control2.y
-      + progress * progress * progress * segment.end.y,
-  };
-}
-
-function getDotClearance(segments, dots) {
-  return segments.reduce((minDistance, segment) => {
-    let nextMinDistance = minDistance;
-
-    for (let index = 0; index <= 12; index += 1) {
-      const point = getCubicPoint(segment, index / 12);
-
-      dots.forEach((dot) => {
-        nextMinDistance = Math.min(
-          nextMinDistance,
-          Math.hypot(point.x - dot.x, point.y - dot.y),
-        );
-      });
-    }
-
-    return nextMinDistance;
-  }, Infinity);
-}
-
-function buildConnectorCandidate(start, end, bendVector, id) {
-  const midpoint = {
-    x: (start.x + end.x) / 2,
-    y: (start.y + end.y) / 2,
-  };
-  const waypoint = addVector(midpoint, bendVector, DOT_SPACING * 0.42);
-
+function getDotGateCorners(dot) {
   return [
-    buildConnectorSpan(start, waypoint, bendVector, `${id}-0`),
-    buildConnectorSpan(waypoint, end, bendVector, `${id}-1`),
+    [dot.row, dot.col],
+    [dot.row, dot.col + 1],
+    [dot.row + 1, dot.col],
+    [dot.row + 1, dot.col + 1],
   ];
 }
 
-function buildConnectorSegments(start, end, patternCenter, dots, id) {
-  const direction = normalize({
-    x: end.x - start.x,
-    y: end.y - start.y,
-  });
-  const midpoint = {
-    x: (start.x + end.x) / 2,
-    y: (start.y + end.y) / 2,
-  };
-  const towardCenter = normalize({
-    x: patternCenter.x - midpoint.x,
-    y: patternCenter.y - midpoint.y,
-  });
-  const bendVector = towardCenter.x === 0 && towardCenter.y === 0
-    ? { x: -direction.y, y: direction.x }
-    : towardCenter;
-  const normal = {
-    x: -direction.y,
-    y: direction.x,
-  };
-  const candidates = [
-    bendVector,
-    { x: -bendVector.x, y: -bendVector.y },
-    normal,
-    { x: -normal.x, y: -normal.y },
-  ].map((candidate, index) => buildConnectorCandidate(
-    start,
-    end,
-    candidate,
-    `${id}-${index}`,
-  ));
+function isInsideGateMatrix(gates, row, col) {
+  return row >= 0 && col >= 0 && row < gates.length && col < gates[0].length;
+}
 
-  return candidates.reduce((bestCandidate, candidate) => (
-    getDotClearance(candidate, dots) > getDotClearance(bestCandidate, dots)
-      ? candidate
-      : bestCandidate
+function getGate(gates, row, col) {
+  return isInsideGateMatrix(gates, row, col) ? gates[row][col] : CLOSED;
+}
+
+function enforceGateRules(gates, dots, random) {
+  dots.forEach((dot) => {
+    const corners = getDotGateCorners(dot).filter(([row, col]) => (
+      isInsideGateMatrix(gates, row, col)
+    ));
+    const allClosed = corners.every(([row, col]) => gates[row][col] === CLOSED);
+
+    if (!allClosed) {
+      return;
+    }
+
+    const mutableCorners = corners.filter(([row, col]) => (
+      row > 0 && col > 0 && row < gates.length - 1 && col < gates[0].length - 1
+    ));
+    const [row, col] = mutableCorners[Math.floor(random() * mutableCorners.length)]
+      ?? mutableCorners[0]
+      ?? [];
+
+    if (row !== undefined && col !== undefined) {
+      gates[row][col] = OPEN;
+    }
+  });
+
+  return gates;
+}
+
+function buildGates(pattern, dots, random) {
+  return enforceGateRules(createGateMatrix(pattern, random), dots, random);
+}
+
+function gatePoint(row, col) {
+  return {
+    x: (col - 0.5) * DOT_SPACING,
+    y: (row - 0.5) * DOT_SPACING,
+  };
+}
+
+function getStateKey(state) {
+  return `${state.row}:${state.col}:${state.directionIndex}`;
+}
+
+function getDotCenterFromGate(dot) {
+  return {
+    x: dot.col * DOT_SPACING,
+    y: dot.row * DOT_SPACING,
+  };
+}
+
+function findNearestDot(state, dots) {
+  const point = gatePoint(state.row, state.col);
+
+  return dots.reduce((nearestDot, dot) => {
+    const center = getDotCenterFromGate(dot);
+    const distance = Math.hypot(point.x - center.x, point.y - center.y);
+
+    return !nearestDot || distance < nearestDot.distance
+      ? { dot, center, distance }
+      : nearestDot;
+  }, null);
+}
+
+function getTurnDirection(state, dots) {
+  const direction = DIRECTIONS[state.directionIndex];
+  const point = gatePoint(state.row, state.col);
+  const nearestDot = findNearestDot(state, dots);
+
+  if (!nearestDot) {
+    return 1;
+  }
+
+  const toDot = {
+    x: nearestDot.center.x - point.x,
+    y: nearestDot.center.y - point.y,
+  };
+  const cross = direction.col * toDot.y - direction.row * toDot.x;
+
+  if (cross === 0) {
+    return (state.row + state.col) % 2 === 0 ? 1 : -1;
+  }
+
+  return cross > 0 ? -1 : 1;
+}
+
+function getNextState(state, gates, dots) {
+  const isOpen = getGate(gates, state.row, state.col) === OPEN;
+  const turn = isOpen ? 0 : getTurnDirection(state, dots);
+  const preferredDirectionIndex = (
+    state.directionIndex + turn + DIRECTIONS.length
+  ) % DIRECTIONS.length;
+  const directionIndex = [
+    preferredDirectionIndex,
+    (preferredDirectionIndex + 1) % DIRECTIONS.length,
+    (preferredDirectionIndex + DIRECTIONS.length - 1) % DIRECTIONS.length,
+    (preferredDirectionIndex + 2) % DIRECTIONS.length,
+  ].find((candidateDirectionIndex) => {
+    const candidateDirection = DIRECTIONS[candidateDirectionIndex];
+
+    return isInsideGateMatrix(
+      gates,
+      state.row + candidateDirection.row,
+      state.col + candidateDirection.col,
+    );
+  }) ?? preferredDirectionIndex;
+  const direction = DIRECTIONS[directionIndex];
+
+  return {
+    row: state.row + direction.row,
+    col: state.col + direction.col,
+    directionIndex,
+    gate: getGate(gates, state.row, state.col),
+  };
+}
+
+function isStateInside(gates, state) {
+  return isInsideGateMatrix(gates, state.row, state.col);
+}
+
+function simulateFrom(start, gates, dots) {
+  const states = [start];
+  const visited = new Map([[getStateKey(start), 0]]);
+  let state = start;
+
+  for (let step = 0; step < MAX_SIMULATION_STEPS; step += 1) {
+    const nextState = getNextState(state, gates, dots);
+
+    if (!isStateInside(gates, nextState)) {
+      return { states, closed: false };
+    }
+
+    const nextKey = getStateKey(nextState);
+    states.push(nextState);
+
+    if (nextKey === getStateKey(start)) {
+      return {
+        states,
+        closed: states.length >= Math.max(8, dots.length),
+      };
+    }
+
+    if (visited.has(nextKey)) {
+      const cycleStart = visited.get(nextKey);
+      const cycleStates = states.slice(cycleStart);
+
+      return {
+        states: cycleStates,
+        closed: cycleStates.length >= Math.max(8, dots.length),
+      };
+    }
+
+    visited.set(nextKey, states.length - 1);
+    state = nextState;
+  }
+
+  return { states, closed: false };
+}
+
+function getCoveredDots(states, dots) {
+  const covered = new Set();
+
+  states.forEach((state) => {
+    dots.forEach((dot) => {
+      const touchesDot = getDotGateCorners(dot).some(([row, col]) => (
+        row === state.row && col === state.col
+      ));
+
+      if (touchesDot) {
+        covered.add(`${dot.row}:${dot.col}`);
+      }
+    });
+  });
+
+  return covered;
+}
+
+function scoreSimulation(simulation, dots) {
+  const coveredDots = getCoveredDots(simulation.states, dots).size;
+  const closureBonus = simulation.closed ? dots.length * 8 : 0;
+
+  return closureBonus + coveredDots * 10 + simulation.states.length;
+}
+
+function getStartStates(gates) {
+  const states = [];
+
+  for (let row = 0; row < gates.length; row += 1) {
+    for (let col = 0; col < gates[0].length; col += 1) {
+      DIRECTIONS.forEach((_, directionIndex) => {
+        states.push({ row, col, directionIndex, gate: getGate(gates, row, col) });
+      });
+    }
+  }
+
+  return states;
+}
+
+function findBestSimulation(gates, dots) {
+  return getStartStates(gates).reduce((best, start) => {
+    const simulation = simulateFrom(start, gates, dots);
+    const score = scoreSimulation(simulation, dots);
+
+    return !best || score > best.score
+      ? { ...simulation, score }
+      : best;
+  }, null);
+}
+
+function improveGates(initialGates, dots, random) {
+  let gates = cloneGates(initialGates);
+  let bestSimulation = findBestSimulation(gates, dots);
+
+  for (let pass = 0; pass < OPTIMIZATION_PASSES; pass += 1) {
+    const nextGates = cloneGates(gates);
+    const row = 1 + Math.floor(random() * Math.max(1, nextGates.length - 2));
+    const col = 1 + Math.floor(random() * Math.max(1, nextGates[0].length - 2));
+
+    nextGates[row][col] = nextGates[row][col] === OPEN ? CLOSED : OPEN;
+    enforceGateRules(nextGates, dots, random);
+
+    const nextSimulation = findBestSimulation(nextGates, dots);
+
+    if (nextSimulation.score >= bestSimulation.score) {
+      gates = nextGates;
+      bestSimulation = nextSimulation;
+    }
+
+    if (
+      bestSimulation.closed
+      && getCoveredDots(bestSimulation.states, dots).size === dots.length
+    ) {
+      break;
+    }
+  }
+
+  return { gates, simulation: bestSimulation };
+}
+
+function getDirectionIndexBetween(start, end) {
+  return DIRECTIONS.findIndex((direction) => (
+    direction.row === Math.sign(end.row - start.row)
+    && direction.col === Math.sign(end.col - start.col)
   ));
 }
 
-function buildCellBasedSikkuSegments(pattern) {
-  const rows = getRows(pattern).filter((row) => row.length > 1);
-  const orderedCells = orderCells(buildCells(rows));
-  const patternCenter = getPatternCenter(rows);
-  const dots = rows.flat();
+function toState(row, col, directionIndex, gates) {
+  return {
+    row,
+    col,
+    directionIndex,
+    gate: getGate(gates, row, col),
+  };
+}
 
-  if (!orderedCells.length) {
+function buildCoverageSimulation(gates) {
+  const points = [];
+
+  for (let row = 0; row < gates.length; row += 1) {
+    if (row % 2 === 0) {
+      for (let col = 0; col < gates[0].length; col += 1) {
+        points.push({ row, col });
+      }
+    } else {
+      for (let col = gates[0].length - 1; col >= 0; col -= 1) {
+        points.push({ row, col });
+      }
+    }
+  }
+
+  const lastPoint = points[points.length - 1];
+
+  for (let row = lastPoint.row - 1; row >= 0; row -= 1) {
+    points.push({ row, col: lastPoint.col });
+  }
+
+  if (points[points.length - 1].col !== points[0].col) {
+    const row = points[points.length - 1].row;
+    const direction = points[points.length - 1].col > points[0].col ? -1 : 1;
+
+    for (
+      let col = points[points.length - 1].col + direction;
+      col !== points[0].col + direction;
+      col += direction
+    ) {
+      points.push({ row, col });
+    }
+  }
+
+  const closedPoints = [...points, points[0]];
+  const states = closedPoints.map((point, index) => {
+    const nextPoint = closedPoints[index + 1] ?? closedPoints[1];
+    const directionIndex = Math.max(0, getDirectionIndexBetween(point, nextPoint));
+
+    return toState(point.row, point.col, directionIndex, gates);
+  });
+
+  return { states, closed: true, score: states.length };
+}
+
+function toLineSegment(start, end, id) {
+  return {
+    id,
+    start,
+    control: {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2,
+    },
+    end,
+    command: "L",
+  };
+}
+
+function toArcSegment(start, end, sweep, id) {
+  return {
+    id,
+    start,
+    control: {
+      x: (start.x + end.x) / 2,
+      y: (start.y + end.y) / 2,
+    },
+    end,
+    radius: DOT_SPACING * 0.5,
+    sweep,
+    command: "A",
+  };
+}
+
+function buildSegmentsFromSimulation(simulation) {
+  const states = simulation.states;
+
+  return states.slice(0, -1).map((state, index) => {
+    const nextState = states[index + 1];
+    const start = gatePoint(state.row, state.col);
+    const end = gatePoint(nextState.row, nextState.col);
+
+    if (state.gate === CLOSED) {
+      const turnDelta = (
+        nextState.directionIndex - state.directionIndex + DIRECTIONS.length
+      ) % DIRECTIONS.length;
+
+      return toArcSegment(
+        start,
+        end,
+        turnDelta === 1 ? 1 : 0,
+        `gate-${index}-turn`,
+      );
+    }
+
+    return toLineSegment(start, end, `gate-${index}-straight`);
+  });
+}
+
+function buildGatingBasedSikkuSegments(pattern) {
+  const rows = getRows(pattern);
+  const dots = rows.flat();
+  const random = createRandom(getPatternKey(pattern));
+  const initialGates = buildGates(pattern, dots, random);
+  const { gates, simulation } = improveGates(initialGates, dots, random);
+  const selectedSimulation = simulation?.closed && simulation.states.length >= dots.length
+    ? simulation
+    : buildCoverageSimulation(gates);
+
+  if (!selectedSimulation?.closed) {
     return [];
   }
 
-  const firstStart = getCellCurveFrame(orderedCells[0]).start;
-  const segments = [];
-  let cursor = firstStart;
-
-  orderedCells.forEach((cell) => {
-    const { start } = getCellCurveFrame(cell);
-
-    if (Math.hypot(cursor.x - start.x, cursor.y - start.y) > 0) {
-      segments.push(...buildConnectorSegments(
-        cursor,
-        start,
-        patternCenter,
-        dots,
-        `${cell.id}-join`,
-      ));
-    }
-
-    const segment = buildCellCurveSegment(cell, start, `${cell.id}-curve`);
-
-    segments.push(segment);
-    cursor = segment.end;
-  });
-
-  segments.push(...buildConnectorSegments(
-    cursor,
-    firstStart,
-    patternCenter,
-    dots,
-    "cell-path-close",
-  ));
-
-  return segments;
+  return buildSegmentsFromSimulation(selectedSimulation);
 }
 
 export function buildKolamSegments(pattern) {
-  if (!SUPPORTED_PATTERNS.has(getPatternKey(pattern))) {
-    return [];
-  }
-
-  return buildCellBasedSikkuSegments(pattern);
+  return buildGatingBasedSikkuSegments(pattern);
 }
 
 function buildSegmentCommand(segment) {
-  return `C ${segment.control1.x} ${segment.control1.y} ${segment.control2.x} ${segment.control2.y} ${segment.end.x} ${segment.end.y}`;
+  if (segment.command === "A") {
+    return `A ${segment.radius} ${segment.radius} 0 0 ${segment.sweep} ${segment.end.x} ${segment.end.y}`;
+  }
+
+  return `L ${segment.end.x} ${segment.end.y}`;
 }
 
 export function buildKolamPath(pattern) {
