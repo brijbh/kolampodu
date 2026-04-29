@@ -111,11 +111,18 @@ function getTurn() {
   return +1;
 }
 
+function crossesDot(current, next, dots) {
+  return dots.some((dot) => (
+    (dot.row === current.row && dot.col === next.col) ||
+    (dot.row === next.row && dot.col === current.col)
+  ));
+}
+
 // ----------------------
 // Next State (CORE)
 // ----------------------
 
-function nextState(state, gates, mask) {
+function nextState(state, gates, mask, dots) {
   const gate = isGateActive(state.row, state.col, mask)
     ? gates[state.row][state.col]
     : CLOSED;
@@ -133,6 +140,23 @@ function nextState(state, gates, mask) {
     dir,
   };
 
+  if (crossesDot(state, next, dots)) {
+    dir = (dir + getTurn(state) + 4) % 4;
+
+    const turnMove = DIRS[dir];
+    const turnNext = {
+      row: state.row + turnMove.dr,
+      col: state.col + turnMove.dc,
+      dir,
+    };
+
+    if (crossesDot(state, turnNext, dots)) {
+      return null;
+    }
+
+    return isGateActive(turnNext.row, turnNext.col, mask) ? turnNext : null;
+  }
+
   return isGateActive(next.row, next.col, mask) ? next : null;
 }
 
@@ -140,7 +164,7 @@ function nextState(state, gates, mask) {
 // Simulation
 // ----------------------
 
-function simulate(gates, start, mask) {
+function simulate(gates, start, mask, dots) {
   const visited = new Set();
   const path = [];
 
@@ -160,7 +184,7 @@ function simulate(gates, start, mask) {
     visited.add(key);
     path.push(state);
 
-    const next = nextState(state, gates, mask);
+    const next = nextState(state, gates, mask, dots);
 
     if (
       !next ||
@@ -266,7 +290,7 @@ function findBestLoop(gates, dots, mask) {
 
       for (let d = 0; d < 4; d++) {
         const candidate = evaluateLoop(
-          simulate(gates, { row: r, col: c, dir: d }, mask),
+          simulate(gates, { row: r, col: c, dir: d }, mask, dots),
           dots,
         );
 
