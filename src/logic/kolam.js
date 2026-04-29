@@ -2,6 +2,7 @@ import { DOT_SPACING, getPatternWidth } from "./grid";
 
 const OPEN = 1;
 const CLOSED = 0;
+const MAX_ATTEMPTS = 50;
 
 const DIRS = [
   { dr: 0, dc: 1 },   // east
@@ -10,13 +11,26 @@ const DIRS = [
   { dr: -1, dc: 0 },  // north
 ];
 
+function createRandom(pattern, attempt) {
+  let seed = `${pattern.join(",")}:${attempt}`.split("").reduce(
+    (hash, char) => ((hash << 5) - hash + char.charCodeAt(0)) >>> 0,
+    2166136261,
+  );
+
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+}
+
 // ----------------------
 // Gate Matrix
 // ----------------------
 
-function createGateMatrix(pattern) {
+function createGateMatrix(pattern, attempt) {
   const rows = pattern.length + 1;
   const cols = getPatternWidth(pattern) + 1;
+  const random = createRandom(pattern, attempt);
 
   const gates = [];
 
@@ -28,7 +42,7 @@ function createGateMatrix(pattern) {
 
       gates[r][c] = isBoundary
         ? CLOSED
-        : Math.random() < 0.55
+        : random() < 0.55
         ? OPEN
         : CLOSED;
     }
@@ -115,13 +129,28 @@ function simulate(gates, start) {
 // Find valid loop
 // ----------------------
 
-function findLoop(gates) {
+function isValidLoop(result, threshold) {
+  const [start] = result?.path ?? [];
+  const end = result?.path?.[result.path.length - 1];
+
+  return Boolean(
+    result?.closed
+    && result.path.length > threshold
+    && start
+    && end
+    && end.row === start.row
+    && end.col === start.col
+    && end.dir === start.dir,
+  );
+}
+
+function findLoop(gates, threshold) {
   for (let r = 0; r < gates.length; r++) {
     for (let c = 0; c < gates[0].length; c++) {
       for (let d = 0; d < 4; d++) {
         const result = simulate(gates, { row: r, col: c, dir: d });
 
-        if (result.closed && result.path.length > 10) {
+        if (isValidLoop(result, threshold)) {
           return result;
         }
       }
@@ -172,14 +201,24 @@ function buildSegments(path) {
 // ----------------------
 
 export function buildKolamSegments(pattern) {
-  const gates = createGateMatrix(pattern);
-  const result = findLoop(gates);
+  const threshold = pattern.reduce((sum, count) => sum + count, 0) * 2;
 
-  if (!result) {
-    return [];
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const gates = createGateMatrix(pattern, attempt);
+    const result = findLoop(gates, threshold);
+
+    console.log(
+      `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ${
+        result ? `valid loop (${result.path.length} states)` : "no valid loop"
+      }`,
+    );
+
+    if (result) {
+      return buildSegments(result.path);
+    }
   }
 
-  return buildSegments(result.path);
+  return [];
 }
 
 export function buildKolamPath(pattern) {
