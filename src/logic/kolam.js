@@ -62,17 +62,21 @@ function isBoundaryGate(gates, row, col) {
   );
 }
 
-function createDotCoordinates(pattern) {
+function createGridDots(pattern) {
   const width = getPatternWidth(pattern);
 
   return pattern.flatMap((count, row) => {
     const offset = (width - count) / 2;
 
     return Array.from({ length: count }, (_, col) => ({
-      row: row + 1,
-      col: offset + col + 1,
+      row: row + 0.5,
+      col: offset + col + 0.5,
     }));
   });
+}
+
+function createDotSet(dots) {
+  return new Set(dots.map((dot) => `${dot.row},${dot.col}`));
 }
 
 function buildActiveMask(pattern) {
@@ -111,18 +115,18 @@ function getTurn() {
   return +1;
 }
 
-function crossesDot(current, next, dots) {
-  return dots.some((dot) => (
-    (dot.row === current.row && dot.col === next.col) ||
-    (dot.row === next.row && dot.col === current.col)
-  ));
+function crossesDot(current, next, dotSet) {
+  const key1 = `${current.row},${current.col}`;
+  const key2 = `${next.row},${next.col}`;
+
+  return dotSet.has(key1) || dotSet.has(key2);
 }
 
 // ----------------------
 // Next State (CORE)
 // ----------------------
 
-function nextState(state, gates, mask, dots) {
+function nextState(state, gates, mask, dotSet) {
   const gate = isGateActive(state.row, state.col, mask)
     ? gates[state.row][state.col]
     : CLOSED;
@@ -140,7 +144,7 @@ function nextState(state, gates, mask, dots) {
     dir,
   };
 
-  if (crossesDot(state, next, dots)) {
+  if (crossesDot(state, next, dotSet)) {
     dir = (dir + getTurn(state) + 4) % 4;
 
     const turnMove = DIRS[dir];
@@ -149,10 +153,6 @@ function nextState(state, gates, mask, dots) {
       col: state.col + turnMove.dc,
       dir,
     };
-
-    if (crossesDot(state, turnNext, dots)) {
-      return null;
-    }
 
     return isGateActive(turnNext.row, turnNext.col, mask) ? turnNext : null;
   }
@@ -164,7 +164,7 @@ function nextState(state, gates, mask, dots) {
 // Simulation
 // ----------------------
 
-function simulate(gates, start, mask, dots) {
+function simulate(gates, start, mask, dotSet) {
   const visited = new Set();
   const path = [];
 
@@ -184,7 +184,7 @@ function simulate(gates, start, mask, dots) {
     visited.add(key);
     path.push(state);
 
-    const next = nextState(state, gates, mask, dots);
+    const next = nextState(state, gates, mask, dotSet);
 
     if (
       !next ||
@@ -279,7 +279,7 @@ function isBetterLoop(candidate, current) {
   return candidate.length > current.length;
 }
 
-function findBestLoop(gates, dots, mask) {
+function findBestLoop(gates, dots, mask, dotSet) {
   let best = null;
 
   for (let r = 0; r < gates.length; r++) {
@@ -290,7 +290,7 @@ function findBestLoop(gates, dots, mask) {
 
       for (let d = 0; d < 4; d++) {
         const candidate = evaluateLoop(
-          simulate(gates, { row: r, col: c, dir: d }, mask, dots),
+          simulate(gates, { row: r, col: c, dir: d }, mask, dotSet),
           dots,
         );
 
@@ -370,7 +370,8 @@ export function buildKolamSegments(pattern) {
     return solutionCache.get(cacheKey);
   }
 
-  const dots = createDotCoordinates(pattern);
+  const dots = createGridDots(pattern);
+  const dotSet = createDotSet(dots);
   const mask = buildActiveMask(pattern);
   const qualityTarget = dots.length * 6;
   let bestValid = null;
@@ -378,7 +379,11 @@ export function buildKolamSegments(pattern) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const random = createRandom(pattern, `opt-${attempt}`);
     const gates = createGateMatrix(pattern, attempt);
-    let current = findBestLoop(gates, dots, mask);
+    let current = findBestLoop(gates, dots, mask, dotSet);
+    console.log({
+      closed: current.result.closed,
+      steps: current.result.path.length,
+    });
 
     console.log(
       `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ` +
@@ -398,7 +403,7 @@ export function buildKolamSegments(pattern) {
 
     for (let step = 0; step < MAX_OPTIMIZATION_STEPS; step += 1) {
       const flip = flipRandomGate(gates, random);
-      const candidate = findBestLoop(gates, dots, mask);
+      const candidate = findBestLoop(gates, dots, mask, dotSet);
 
       if (isBetterLoop(candidate, current)) {
         current = candidate;
