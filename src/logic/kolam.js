@@ -31,6 +31,89 @@ function toSegment(start, control, end, id) {
   };
 }
 
+function toCubicSegment(start, control1, control2, end, id) {
+  return {
+    id,
+    start,
+    control: {
+      x: (control1.x + control2.x) / 2,
+      y: (control1.y + control2.y) / 2,
+    },
+    control1,
+    control2,
+    end,
+  };
+}
+
+function pointsMatch(a, b) {
+  return a.x === b.x && a.y === b.y;
+}
+
+function getStartTangent(segment) {
+  return {
+    x: segment.control.x - segment.start.x,
+    y: segment.control.y - segment.start.y,
+  };
+}
+
+function getEndTangent(segment) {
+  return {
+    x: segment.end.x - segment.control.x,
+    y: segment.end.y - segment.control.y,
+  };
+}
+
+function normalize(vector) {
+  const length = Math.hypot(vector.x, vector.y);
+
+  if (length === 0) {
+    return { x: 0, y: 0 };
+  }
+
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+  };
+}
+
+function getDistance(firstPoint, secondPoint) {
+  return Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y);
+}
+
+function moveAlong(point, vector, distance) {
+  return {
+    x: point.x + vector.x * distance,
+    y: point.y + vector.y * distance,
+  };
+}
+
+function addClosingSegment(segments, id) {
+  const firstSegment = segments[0];
+  const lastSegment = segments[segments.length - 1];
+
+  if (!firstSegment || !lastSegment || pointsMatch(lastSegment.end, firstSegment.start)) {
+    return segments;
+  }
+
+  const handleLength = Math.min(
+    getDistance(lastSegment.end, firstSegment.start) * 0.35,
+    DOT_SPACING * 1.4,
+  );
+  const startTangent = normalize(getEndTangent(lastSegment));
+  const endTangent = normalize(getStartTangent(firstSegment));
+
+  return [
+    ...segments,
+    toCubicSegment(
+      lastSegment.end,
+      moveAlong(lastSegment.end, startTangent, handleLength),
+      moveAlong(firstSegment.start, endTangent, -handleLength),
+      firstSegment.start,
+      id,
+    ),
+  ];
+}
+
 function getPatternKey(pattern) {
   return pattern.join(",");
 }
@@ -306,11 +389,17 @@ function buildTemporaryLoopPlaceholderSegments(pattern) {
 
 export function buildKolamSegments(pattern) {
   if (isHandcraftedPattern(pattern)) {
-    return buildHandcraftedSikkuSegments(pattern);
+    return addClosingSegment(
+      buildHandcraftedSikkuSegments(pattern),
+      "anchor-loop-close",
+    );
   }
 
   if (isPlaceholderPattern(pattern)) {
-    return buildTemporaryLoopPlaceholderSegments(pattern);
+    return addClosingSegment(
+      buildTemporaryLoopPlaceholderSegments(pattern),
+      "placeholder-loop-close",
+    );
   }
 
   return [];
@@ -326,13 +415,21 @@ export function buildKolamPath(pattern) {
 
   return [
     `M ${firstSegment.start.x} ${firstSegment.start.y}`,
-    `Q ${firstSegment.control.x} ${firstSegment.control.y} ${firstSegment.end.x} ${firstSegment.end.y}`,
+    buildSegmentCommand(firstSegment),
     ...remainingSegments.map(
-      (segment) => `Q ${segment.control.x} ${segment.control.y} ${segment.end.x} ${segment.end.y}`,
+      (segment) => buildSegmentCommand(segment),
     ),
   ].join(" ");
 }
 
+function buildSegmentCommand(segment) {
+  if (segment.control1 && segment.control2) {
+    return `C ${segment.control1.x} ${segment.control1.y} ${segment.control2.x} ${segment.control2.y} ${segment.end.x} ${segment.end.y}`;
+  }
+
+  return `Q ${segment.control.x} ${segment.control.y} ${segment.end.x} ${segment.end.y}`;
+}
+
 export function buildSegmentPath(segment) {
-  return `M ${segment.start.x} ${segment.start.y} Q ${segment.control.x} ${segment.control.y} ${segment.end.x} ${segment.end.y}`;
+  return `M ${segment.start.x} ${segment.start.y} ${buildSegmentCommand(segment)}`;
 }

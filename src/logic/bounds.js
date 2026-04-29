@@ -26,8 +26,10 @@ export function getSegmentBounds(segments) {
     segments.flatMap((segment) => [
       segment.start,
       segment.control,
+      segment.control1,
+      segment.control2,
       segment.end,
-    ]),
+    ].filter(Boolean)),
   );
 }
 
