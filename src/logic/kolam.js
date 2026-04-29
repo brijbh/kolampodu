@@ -75,11 +75,32 @@ function createDotCoordinates(pattern) {
   });
 }
 
-function isActiveCell(row, col, dots) {
-  return dots.some((dot) => (
-    Math.abs(dot.row - row) <= 1 &&
-    Math.abs(dot.col - col) <= 1
-  ));
+function buildActiveMask(pattern) {
+  const mask = [];
+  const maxWidth = getPatternWidth(pattern);
+
+  for (let row = 0; row < pattern.length; row += 1) {
+    const count = pattern[row];
+    const start = (maxWidth - count) / 2;
+    const end = start + count;
+
+    mask[row] = [];
+
+    for (let col = 0; col < maxWidth; col += 1) {
+      mask[row][col] = col < end && col + 1 > start;
+    }
+  }
+
+  return mask;
+}
+
+function isGateActive(row, col, mask) {
+  return Boolean(
+    mask[row]?.[col] ||
+    mask[row]?.[col - 1] ||
+    mask[row - 1]?.[col] ||
+    mask[row - 1]?.[col - 1],
+  );
 }
 
 // ----------------------
@@ -94,8 +115,8 @@ function getTurn() {
 // Next State (CORE)
 // ----------------------
 
-function nextState(state, gates, dots) {
-  const gate = isActiveCell(state.row, state.col, dots)
+function nextState(state, gates, mask) {
+  const gate = isGateActive(state.row, state.col, mask)
     ? gates[state.row][state.col]
     : CLOSED;
   let dir = state.dir;
@@ -112,21 +133,21 @@ function nextState(state, gates, dots) {
     dir,
   };
 
-  return isActiveCell(next.row, next.col, dots) ? next : null;
+  return isGateActive(next.row, next.col, mask) ? next : null;
 }
 
 // ----------------------
 // Simulation
 // ----------------------
 
-function simulate(gates, start, dots) {
+function simulate(gates, start, mask) {
   const visited = new Set();
   const path = [];
 
   let state = { ...start };
 
   while (true) {
-    if (!isActiveCell(state.row, state.col, dots)) {
+    if (!isGateActive(state.row, state.col, mask)) {
       return { closed: false, path };
     }
 
@@ -139,7 +160,7 @@ function simulate(gates, start, dots) {
     visited.add(key);
     path.push(state);
 
-    const next = nextState(state, gates, dots);
+    const next = nextState(state, gates, mask);
 
     if (
       !next ||
@@ -234,18 +255,18 @@ function isBetterLoop(candidate, current) {
   return candidate.length > current.length;
 }
 
-function findBestLoop(gates, dots) {
+function findBestLoop(gates, dots, mask) {
   let best = null;
 
   for (let r = 0; r < gates.length; r++) {
     for (let c = 0; c < gates[0].length; c++) {
-      if (!isActiveCell(r, c, dots)) {
+      if (!isGateActive(r, c, mask)) {
         continue;
       }
 
       for (let d = 0; d < 4; d++) {
         const candidate = evaluateLoop(
-          simulate(gates, { row: r, col: c, dir: d }, dots),
+          simulate(gates, { row: r, col: c, dir: d }, mask),
           dots,
         );
 
@@ -326,13 +347,14 @@ export function buildKolamSegments(pattern) {
   }
 
   const dots = createDotCoordinates(pattern);
+  const mask = buildActiveMask(pattern);
   const qualityTarget = dots.length * 6;
   let bestValid = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const random = createRandom(pattern, `opt-${attempt}`);
     const gates = createGateMatrix(pattern, attempt);
-    let current = findBestLoop(gates, dots);
+    let current = findBestLoop(gates, dots, mask);
 
     console.log(
       `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ` +
@@ -352,7 +374,7 @@ export function buildKolamSegments(pattern) {
 
     for (let step = 0; step < MAX_OPTIMIZATION_STEPS; step += 1) {
       const flip = flipRandomGate(gates, random);
-      const candidate = findBestLoop(gates, dots);
+      const candidate = findBestLoop(gates, dots, mask);
 
       if (isBetterLoop(candidate, current)) {
         current = candidate;
