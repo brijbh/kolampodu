@@ -1,26 +1,13 @@
 import { DOT_SPACING, generateDotGrid } from "./grid";
 
-const HANDCRAFTED_PATTERN = "5,4,3,2,1";
-const PLACEHOLDER_PATTERNS = new Set([
+const LOOP_RADIUS = DOT_SPACING * 0.18;
+const ARC_HANDLE = 0.5522847498307936;
+const SUPPORTED_PATTERNS = new Set([
+  "5,4,3,2,1",
   "5,5,5,5,5",
   "1,2,3,4,3,2,1",
   "3,5,5,5,3",
 ]);
-const ANCHOR_RADIUS = 24;
-const LOOP_RADIUS = DOT_SPACING * 0.36;
-const ROW_DROP_HANDLE = DOT_SPACING * 0.6;
-const LEFT_TURN_RULE = {
-  left: "top",
-  top: "right",
-  right: "bottom",
-  bottom: "left",
-};
-const RIGHT_TURN_RULE = {
-  left: "bottom",
-  bottom: "right",
-  right: "top",
-  top: "left",
-};
 
 function toSegment(start, control, end, id) {
   return {
@@ -28,6 +15,21 @@ function toSegment(start, control, end, id) {
     start,
     control,
     end,
+  };
+}
+
+function toLineSegment(start, end, id) {
+  return {
+    ...toSegment(
+      start,
+      {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2,
+      },
+      end,
+      id,
+    ),
+    command: "L",
   };
 }
 
@@ -42,25 +44,168 @@ function toCubicSegment(start, control1, control2, end, id) {
     control1,
     control2,
     end,
+    command: "C",
   };
 }
 
-function pointsMatch(a, b) {
-  return a.x === b.x && a.y === b.y;
+function getPatternKey(pattern) {
+  return pattern.join(",");
 }
 
-function getStartTangent(segment) {
+function getRows(pattern) {
+  const dots = generateDotGrid(pattern);
+  let dotIndex = 0;
+
+  return pattern.map((count, rowIndex) => {
+    const row = dots.slice(dotIndex, dotIndex + count).map((dot, col) => ({
+      ...dot,
+      row: rowIndex,
+      col,
+      key: `${rowIndex}:${col}`,
+    }));
+
+    dotIndex += count;
+    return row;
+  });
+}
+
+function getBounds(points) {
+  return points.reduce((bounds, point) => ({
+    minX: Math.min(bounds.minX, point.x),
+    minY: Math.min(bounds.minY, point.y),
+    maxX: Math.max(bounds.maxX, point.x),
+    maxY: Math.max(bounds.maxY, point.y),
+  }), {
+    minX: points[0]?.x ?? 0,
+    minY: points[0]?.y ?? 0,
+    maxX: points[0]?.x ?? 0,
+    maxY: points[0]?.y ?? 0,
+  });
+}
+
+function getCenter(points) {
+  const bounds = getBounds(points);
+
   return {
-    x: segment.control.x - segment.start.x,
-    y: segment.control.y - segment.start.y,
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2,
   };
 }
 
-function getEndTangent(segment) {
+function getMidpoint(firstPoint, secondPoint) {
   return {
-    x: segment.end.x - segment.control.x,
-    y: segment.end.y - segment.control.y,
+    x: (firstPoint.x + secondPoint.x) / 2,
+    y: (firstPoint.y + secondPoint.y) / 2,
   };
+}
+
+function buildImplicitEdges(rows) {
+  const edges = [];
+
+  rows.forEach((row, rowIndex) => {
+    row.forEach((dot, col) => {
+      const rightDot = row[col + 1];
+
+      if (rightDot) {
+        edges.push({
+          id: `edge-h-${rowIndex}-${col}`,
+          orientation: "horizontal",
+          parityIndex: rowIndex + col,
+          start: dot,
+          end: rightDot,
+        });
+      }
+
+      const lowerDot = rows[rowIndex + 1]?.[col];
+
+      if (lowerDot) {
+        edges.push({
+          id: `edge-v-${rowIndex}-${col}`,
+          orientation: "vertical",
+          parityIndex: rowIndex + col + 1,
+          start: dot,
+          end: lowerDot,
+        });
+      }
+    });
+  });
+
+  return edges;
+}
+
+function shouldActivateEdge(edge, center) {
+  const midpoint = getMidpoint(edge.start, edge.end);
+  const centeredDistance = Math.round(
+    (Math.abs(midpoint.x - center.x) + Math.abs(midpoint.y - center.y)) / DOT_SPACING,
+  );
+  const orientationOffset = edge.orientation === "horizontal" ? 0 : 1;
+
+  return (edge.parityIndex + centeredDistance + orientationOffset) % 2 === 0;
+}
+
+function activateEdges(edges, center) {
+  const usedDots = new Set();
+
+  return edges.filter((edge) => {
+    if (!shouldActivateEdge(edge, center)) {
+      return false;
+    }
+
+    if (usedDots.has(edge.start.key) || usedDots.has(edge.end.key)) {
+      return false;
+    }
+
+    usedDots.add(edge.start.key);
+    usedDots.add(edge.end.key);
+    return true;
+  });
+}
+
+function traceLoops(activeEdges) {
+  const edgeByDot = new Map();
+
+  activeEdges.forEach((edge) => {
+    [edge.start.key, edge.end.key].forEach((dotKey) => {
+      const dotEdges = edgeByDot.get(dotKey) ?? [];
+      dotEdges.push(edge);
+      edgeByDot.set(dotKey, dotEdges);
+    });
+  });
+
+  const visited = new Set();
+  const loops = [];
+
+  activeEdges.forEach((edge) => {
+    if (visited.has(edge.id)) {
+      return;
+    }
+
+    const loop = [];
+    const stack = [edge];
+
+    while (stack.length) {
+      const nextEdge = stack.pop();
+
+      if (!nextEdge || visited.has(nextEdge.id)) {
+        continue;
+      }
+
+      visited.add(nextEdge.id);
+      loop.push(nextEdge);
+
+      [nextEdge.start.key, nextEdge.end.key].forEach((dotKey) => {
+        edgeByDot.get(dotKey)?.forEach((adjacentEdge) => {
+          if (!visited.has(adjacentEdge.id)) {
+            stack.push(adjacentEdge);
+          }
+        });
+      });
+    }
+
+    loops.push(loop);
+  });
+
+  return loops;
 }
 
 function normalize(vector) {
@@ -76,358 +221,124 @@ function normalize(vector) {
   };
 }
 
-function getDistance(firstPoint, secondPoint) {
-  return Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y);
-}
-
-function moveAlong(point, vector, distance) {
+function addVector(point, firstVector, firstScale, secondVector = null, secondScale = 0) {
   return {
-    x: point.x + vector.x * distance,
-    y: point.y + vector.y * distance,
+    x: point.x + firstVector.x * firstScale + (secondVector?.x ?? 0) * secondScale,
+    y: point.y + firstVector.y * firstScale + (secondVector?.y ?? 0) * secondScale,
   };
 }
 
-function addClosingSegment(segments, id) {
-  const firstSegment = segments[0];
-  const lastSegment = segments[segments.length - 1];
+function getEdgeFrame(edge) {
+  const tangent = normalize({
+    x: edge.end.x - edge.start.x,
+    y: edge.end.y - edge.start.y,
+  });
 
-  if (!firstSegment || !lastSegment || pointsMatch(lastSegment.end, firstSegment.start)) {
-    return segments;
-  }
+  return {
+    tangent,
+    normal: {
+      x: -tangent.y,
+      y: tangent.x,
+    },
+  };
+}
 
-  const handleLength = Math.min(
-    getDistance(lastSegment.end, firstSegment.start) * 0.35,
-    DOT_SPACING * 1.4,
-  );
-  const startTangent = normalize(getEndTangent(lastSegment));
-  const endTangent = normalize(getStartTangent(firstSegment));
+function buildEdgeLoopSegments(edge, loopIndex) {
+  const { tangent, normal } = getEdgeFrame(edge);
+  const radius = LOOP_RADIUS;
+  const handle = radius * ARC_HANDLE;
+  const startUpper = addVector(edge.start, normal, radius);
+  const endUpper = addVector(edge.end, normal, radius);
+  const endOuter = addVector(edge.end, tangent, radius);
+  const endLower = addVector(edge.end, normal, -radius);
+  const startLower = addVector(edge.start, normal, -radius);
+  const startOuter = addVector(edge.start, tangent, -radius);
+  const id = `loop-${loopIndex}-${edge.id}`;
 
   return [
-    ...segments,
+    {
+      ...toLineSegment(startUpper, endUpper, `${id}-side-0`),
+      startsLoop: true,
+    },
     toCubicSegment(
-      lastSegment.end,
-      moveAlong(lastSegment.end, startTangent, handleLength),
-      moveAlong(firstSegment.start, endTangent, -handleLength),
-      firstSegment.start,
-      id,
+      endUpper,
+      addVector(endUpper, tangent, handle),
+      addVector(endOuter, normal, handle),
+      endOuter,
+      `${id}-cap-end-0`,
+    ),
+    toCubicSegment(
+      endOuter,
+      addVector(endOuter, normal, -handle),
+      addVector(endLower, tangent, handle),
+      endLower,
+      `${id}-cap-end-1`,
+    ),
+    toLineSegment(endLower, startLower, `${id}-side-1`),
+    toCubicSegment(
+      startLower,
+      addVector(startLower, tangent, -handle),
+      addVector(startOuter, normal, -handle),
+      startOuter,
+      `${id}-cap-start-0`,
+    ),
+    toCubicSegment(
+      startOuter,
+      addVector(startOuter, normal, handle),
+      addVector(startUpper, tangent, -handle),
+      startUpper,
+      `${id}-cap-start-1`,
     ),
   ];
 }
 
-function getPatternKey(pattern) {
-  return pattern.join(",");
-}
-
-function isHandcraftedPattern(pattern) {
-  return getPatternKey(pattern) === HANDCRAFTED_PATTERN;
-}
-
-function isPlaceholderPattern(pattern) {
-  return PLACEHOLDER_PATTERNS.has(getPatternKey(pattern));
-}
-
-function getRows(pattern) {
-  const dots = generateDotGrid(pattern);
-  let dotIndex = 0;
-
-  return pattern.map((count) => {
-    const row = dots.slice(dotIndex, dotIndex + count).map((dot, col) => ({
-      ...dot,
-      col,
-    }));
-
-    dotIndex += count;
-    return row;
-  });
-}
-
-function compass(dot, radius = LOOP_RADIUS) {
-  return {
-    north: { x: dot.x, y: dot.y - radius },
-    east: { x: dot.x + radius, y: dot.y },
-    south: { x: dot.x, y: dot.y + radius },
-    west: { x: dot.x - radius, y: dot.y },
-    northEast: { x: dot.x + radius, y: dot.y - radius },
-    southEast: { x: dot.x + radius, y: dot.y + radius },
-    southWest: { x: dot.x - radius, y: dot.y + radius },
-    northWest: { x: dot.x - radius, y: dot.y - radius },
-  };
-}
-
-function addLoop(segments, dot, direction, turn, id) {
-  const points = compass(dot);
-  const route = direction === 1
-    ? turn === "upper"
-      ? [
-        ["west", "northWest", "north"],
-        ["north", "northEast", "east"],
-        ["east", "southEast", "south"],
-        ["south", "southEast", "east"],
-      ]
-      : [
-        ["west", "southWest", "south"],
-        ["south", "southEast", "east"],
-        ["east", "northEast", "north"],
-        ["north", "northEast", "east"],
-      ]
-    : turn === "upper"
-      ? [
-        ["east", "northEast", "north"],
-        ["north", "northWest", "west"],
-        ["west", "southWest", "south"],
-        ["south", "southWest", "west"],
-      ]
-      : [
-        ["east", "southEast", "south"],
-        ["south", "southWest", "west"],
-        ["west", "northWest", "north"],
-        ["north", "northWest", "west"],
-      ];
-
-  route.forEach(([start, control, end], index) => {
-    segments.push(toSegment(
-      points[start],
-      points[control],
-      points[end],
-      `${id}-loop-${index}`,
-    ));
-  });
-}
-
-function addConnector(segments, start, end, id) {
-  if (start.x === end.x && start.y === end.y) {
-    return;
-  }
-
-  segments.push(toSegment(
-    start,
-    {
-      x: (start.x + end.x) / 2,
-      y: (start.y + end.y) / 2,
-    },
-    end,
-    id,
-  ));
-}
-
-function getEntry(dot, direction) {
-  return direction === 1 ? compass(dot).west : compass(dot).east;
-}
-
-function getExit(dot, direction) {
-  return direction === 1 ? compass(dot).east : compass(dot).west;
-}
-
-function addRowDrop(segments, start, end, id, side) {
-  segments.push(toSegment(
-    start,
-    {
-      x: side === "right"
-        ? Math.max(start.x, end.x) + ROW_DROP_HANDLE
-        : Math.min(start.x, end.x) - ROW_DROP_HANDLE,
-      y: (start.y + end.y) / 2,
-    },
-    end,
-    id,
-  ));
-}
-
-function addAnchorSegment(segments, start, control, end, id) {
-  if (start.x === end.x && start.y === end.y) {
-    return;
-  }
-
-  segments.push(toSegment(start, control, end, id));
-}
-
-function dotAnchors(dot, radius = ANCHOR_RADIUS) {
-  return {
-    top: { x: dot.x, y: dot.y - radius },
-    right: { x: dot.x + radius, y: dot.y },
-    bottom: { x: dot.x, y: dot.y + radius },
-    left: { x: dot.x - radius, y: dot.y },
-  };
-}
-
-function getAnchorTurnControl(start, end, entrySide) {
-  if (entrySide === "left" || entrySide === "right") {
-    return {
-      x: start.x,
-      y: end.y,
-    };
-  }
-
-  return {
-    x: end.x,
-    y: start.y,
-  };
-}
-
-function getTraversalRule(rowIndex, col) {
-  return (rowIndex + col) % 2 === 0 ? LEFT_TURN_RULE : RIGHT_TURN_RULE;
-}
-
-function addAnchorTurn(segments, dot, entrySide, turnRule, id) {
-  const exitSide = turnRule[entrySide];
-  const anchors = dotAnchors(dot);
-  const start = anchors[entrySide];
-  const end = anchors[exitSide];
-
-  addAnchorSegment(
-    segments,
-    start,
-    getAnchorTurnControl(start, end, entrySide),
-    end,
-    id,
-  );
-
-  return exitSide;
-}
-
-function addAnchorConnector(segments, start, end, id, side = 0) {
-  addAnchorSegment(
-    segments,
-    start,
-    {
-      x: (start.x + end.x) / 2 + side * ANCHOR_RADIUS,
-      y: (start.y + end.y) / 2,
-    },
-    end,
-    id,
-  );
-}
-
-function buildHandcraftedSikkuSegments(pattern) {
+function buildEdgeBasedSikkuSegments(pattern) {
   const rows = getRows(pattern).filter((row) => row.length > 0);
-  const segments = [];
-  let cursor = null;
+  const dots = rows.flat();
 
-  rows.forEach((row, rowIndex) => {
-    const direction = rowIndex % 2 === 0 ? 1 : -1;
-    const orderedDots = direction === 1 ? row : [...row].reverse();
-    const rowEntrySide = direction === 1 ? "left" : "right";
-    let entrySide = rowEntrySide;
+  if (!dots.length) {
+    return [];
+  }
 
-    orderedDots.forEach((dot, dotIndex) => {
-      const turnRule = getTraversalRule(rowIndex, dot.col);
-      const entry = dotAnchors(dot)[entrySide];
+  const center = getCenter(dots);
+  const edges = buildImplicitEdges(rows);
+  const activeEdges = activateEdges(edges, center);
 
-      if (cursor) {
-        addAnchorConnector(
-          segments,
-          cursor,
-          entry,
-          `anchor-row-${rowIndex}-dot-${dotIndex}-join`,
-          dotIndex === 0 ? direction * -1 : 0,
-        );
-      }
-
-      entrySide = addAnchorTurn(
-        segments,
-        dot,
-        entrySide,
-        turnRule,
-        `anchor-row-${rowIndex}-dot-${dotIndex}-turn-0`,
-      );
-      entrySide = addAnchorTurn(
-        segments,
-        dot,
-        entrySide,
-        turnRule,
-        `anchor-row-${rowIndex}-dot-${dotIndex}-turn-1`,
-      );
-
-      cursor = dotAnchors(dot)[entrySide];
-      entrySide = rowEntrySide;
-    });
-  });
-
-  return segments;
-}
-
-function buildTemporaryLoopPlaceholderSegments(pattern) {
-  const rows = getRows(pattern).filter((row) => row.length > 0);
-  const segments = [];
-  let cursor = null;
-
-  rows.forEach((row, rowIndex) => {
-    const direction = rowIndex % 2 === 0 ? 1 : -1;
-    const orderedDots = direction === 1 ? row : [...row].reverse();
-    const rowEntry = getEntry(orderedDots[0], direction);
-
-    if (cursor) {
-      addRowDrop(
-        segments,
-        cursor,
-        rowEntry,
-        `placeholder-row-${rowIndex}-drop`,
-        direction === 1 ? "left" : "right",
-      );
-    }
-
-    orderedDots.forEach((dot, dotIndex) => {
-      const entry = getEntry(dot, direction);
-
-      if (cursor) {
-        addConnector(segments, cursor, entry, `placeholder-row-${rowIndex}-dot-${dotIndex}-join`);
-      }
-
-      addLoop(
-        segments,
-        dot,
-        direction,
-        "upper",
-        `placeholder-row-${rowIndex}-dot-${dotIndex}`,
-      );
-
-      cursor = getExit(dot, direction);
-    });
-  });
-
-  return segments;
+  return traceLoops(activeEdges).flatMap((loop, loopIndex) => (
+    loop.flatMap((edge) => buildEdgeLoopSegments(edge, loopIndex))
+  ));
 }
 
 export function buildKolamSegments(pattern) {
-  if (isHandcraftedPattern(pattern)) {
-    return addClosingSegment(
-      buildHandcraftedSikkuSegments(pattern),
-      "anchor-loop-close",
-    );
+  if (!SUPPORTED_PATTERNS.has(getPatternKey(pattern))) {
+    return [];
   }
 
-  if (isPlaceholderPattern(pattern)) {
-    return addClosingSegment(
-      buildTemporaryLoopPlaceholderSegments(pattern),
-      "placeholder-loop-close",
-    );
-  }
-
-  return [];
-}
-
-export function buildKolamPath(pattern) {
-  const segments = buildKolamSegments(pattern);
-  const [firstSegment, ...remainingSegments] = segments;
-
-  if (!firstSegment) {
-    return "";
-  }
-
-  return [
-    `M ${firstSegment.start.x} ${firstSegment.start.y}`,
-    buildSegmentCommand(firstSegment),
-    ...remainingSegments.map(
-      (segment) => buildSegmentCommand(segment),
-    ),
-  ].join(" ");
+  return buildEdgeBasedSikkuSegments(pattern);
 }
 
 function buildSegmentCommand(segment) {
+  if (segment.command === "L") {
+    return `L ${segment.end.x} ${segment.end.y}`;
+  }
+
   if (segment.control1 && segment.control2) {
     return `C ${segment.control1.x} ${segment.control1.y} ${segment.control2.x} ${segment.control2.y} ${segment.end.x} ${segment.end.y}`;
   }
 
   return `Q ${segment.control.x} ${segment.control.y} ${segment.end.x} ${segment.end.y}`;
+}
+
+export function buildKolamPath(pattern) {
+  const segments = buildKolamSegments(pattern);
+
+  return segments.map((segment, index) => {
+    const move = index === 0 || segment.startsLoop
+      ? `M ${segment.start.x} ${segment.start.y} `
+      : "";
+
+    return `${move}${buildSegmentCommand(segment)}`;
+  }).join(" ");
 }
 
 export function buildSegmentPath(segment) {
