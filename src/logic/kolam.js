@@ -75,6 +75,13 @@ function createDotCoordinates(pattern) {
   });
 }
 
+function isActiveCell(row, col, dots) {
+  return dots.some((dot) => (
+    Math.abs(dot.row - row) <= 1 &&
+    Math.abs(dot.col - col) <= 1
+  ));
+}
+
 // ----------------------
 // Turn rule (γk simplified)
 // ----------------------
@@ -87,8 +94,10 @@ function getTurn() {
 // Next State (CORE)
 // ----------------------
 
-function nextState(state, gates) {
-  const gate = gates[state.row][state.col];
+function nextState(state, gates, dots) {
+  const gate = isActiveCell(state.row, state.col, dots)
+    ? gates[state.row][state.col]
+    : CLOSED;
   let dir = state.dir;
 
   if (gate === CLOSED) {
@@ -97,24 +106,30 @@ function nextState(state, gates) {
 
   const move = DIRS[dir];
 
-  return {
+  const next = {
     row: state.row + move.dr,
     col: state.col + move.dc,
     dir,
   };
+
+  return isActiveCell(next.row, next.col, dots) ? next : null;
 }
 
 // ----------------------
 // Simulation
 // ----------------------
 
-function simulate(gates, start) {
+function simulate(gates, start, dots) {
   const visited = new Set();
   const path = [];
 
   let state = { ...start };
 
   while (true) {
+    if (!isActiveCell(state.row, state.col, dots)) {
+      return { closed: false, path };
+    }
+
     const key = `${state.row}:${state.col}:${state.dir}`;
 
     if (visited.has(key)) {
@@ -124,9 +139,10 @@ function simulate(gates, start) {
     visited.add(key);
     path.push(state);
 
-    const next = nextState(state, gates);
+    const next = nextState(state, gates, dots);
 
     if (
+      !next ||
       next.row < 0 ||
       next.col < 0 ||
       next.row >= gates.length ||
@@ -223,9 +239,13 @@ function findBestLoop(gates, dots) {
 
   for (let r = 0; r < gates.length; r++) {
     for (let c = 0; c < gates[0].length; c++) {
+      if (!isActiveCell(r, c, dots)) {
+        continue;
+      }
+
       for (let d = 0; d < 4; d++) {
         const candidate = evaluateLoop(
-          simulate(gates, { row: r, col: c, dir: d }),
+          simulate(gates, { row: r, col: c, dir: d }, dots),
           dots,
         );
 
