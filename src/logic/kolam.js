@@ -1,8 +1,11 @@
-import { DOT_SPACING, getPatternWidth } from "./grid";
+import { DOT_SPACING, generateDotGrid, getPatternWidth } from "./grid";
 
 const OPEN = 1;
 const CLOSED = 0;
 const MAX_ATTEMPTS = 50;
+const MAX_OPTIMIZATION_STEPS = 200;
+const DOT_COVERAGE_RADIUS = DOT_SPACING * 0.6;
+const solutionCache = new Map();
 
 const DIRS = [
   { dr: 0, dc: 1 },   // east
@@ -51,13 +54,21 @@ function createGateMatrix(pattern, attempt) {
   return gates;
 }
 
+function isBoundaryGate(gates, row, col) {
+  return (
+    row === 0 ||
+    col === 0 ||
+    row === gates.length - 1 ||
+    col === gates[0].length - 1
+  );
+}
+
 // ----------------------
 // Turn rule (γk simplified)
 // ----------------------
 
-function getTurn(state) {
-  const parity = (state.row + state.col) % 2;
-  return parity === 0 ? +1 : -1;
+function getTurn() {
+  return +1;
 }
 
 // ----------------------
@@ -129,7 +140,44 @@ function simulate(gates, start) {
 // Find valid loop
 // ----------------------
 
-function isValidLoop(result, threshold) {
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (!lengthSquared) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared),
+  );
+
+  return Math.hypot(
+    point.x - (start.x + dx * t),
+    point.y - (start.y + dy * t),
+  );
+}
+
+function getCoveredDots(path, dots) {
+  const covered = new Set();
+
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const start = gatePoint(path[i].row, path[i].col);
+    const end = gatePoint(path[i + 1].row, path[i + 1].col);
+
+    dots.forEach((dot, index) => {
+      if (!covered.has(index) && distanceToSegment(dot, start, end) <= DOT_COVERAGE_RADIUS) {
+        covered.add(index);
+      }
+    });
+  }
+
+  return covered;
+}
+
+function isClosedLoop(result, threshold) {
   const [start] = result?.path ?? [];
   const end = result?.path?.[result.path.length - 1];
 
@@ -144,20 +192,68 @@ function isValidLoop(result, threshold) {
   );
 }
 
-function findLoop(gates, threshold) {
+function evaluateLoop(result, dots, threshold) {
+  const closed = isClosedLoop(result, threshold);
+  const coveredDots = closed
+    ? getCoveredDots(result.path, dots)
+    : new Set();
+
+  return {
+    result,
+    coverage: coveredDots.size,
+    length: closed ? result.path.length : 0,
+    valid: closed && coveredDots.size === dots.length,
+  };
+}
+
+function isBetterLoop(candidate, current) {
+  if (!current) return true;
+  if (candidate.coverage !== current.coverage) {
+    return candidate.coverage > current.coverage;
+  }
+
+  return candidate.length > current.length;
+}
+
+function findBestLoop(gates, dots, threshold) {
+  let best = null;
+
   for (let r = 0; r < gates.length; r++) {
     for (let c = 0; c < gates[0].length; c++) {
       for (let d = 0; d < 4; d++) {
-        const result = simulate(gates, { row: r, col: c, dir: d });
+        const candidate = evaluateLoop(
+          simulate(gates, { row: r, col: c, dir: d }),
+          dots,
+          threshold,
+        );
 
-        if (isValidLoop(result, threshold)) {
-          return result;
+        if (isBetterLoop(candidate, best)) {
+          best = candidate;
         }
       }
     }
   }
 
-  return null;
+  return best;
+}
+
+function flipRandomGate(gates, random) {
+  const row = 1 + Math.floor(random() * (gates.length - 2));
+  const col = 1 + Math.floor(random() * (gates[0].length - 2));
+
+  if (isBoundaryGate(gates, row, col)) {
+    return null;
+  }
+
+  gates[row][col] = gates[row][col] === OPEN ? CLOSED : OPEN;
+
+  return { row, col };
+}
+
+function restoreGate(gates, flip) {
+  if (!flip) return;
+
+  gates[flip.row][flip.col] = gates[flip.row][flip.col] === OPEN ? CLOSED : OPEN;
 }
 
 // ----------------------
@@ -201,24 +297,67 @@ function buildSegments(path) {
 // ----------------------
 
 export function buildKolamSegments(pattern) {
-  const threshold = pattern.reduce((sum, count) => sum + count, 0) * 2;
+  const cacheKey = pattern.join("-");
+
+  if (solutionCache.has(cacheKey)) {
+    return solutionCache.get(cacheKey);
+  }
+
+  const dots = generateDotGrid(pattern);
+  const threshold = dots.length * 2;
+  const qualityTarget = dots.length * 6;
+  let bestValid = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const random = createRandom(pattern, `opt-${attempt}`);
     const gates = createGateMatrix(pattern, attempt);
-    const result = findLoop(gates, threshold);
+    let current = findBestLoop(gates, dots, threshold);
 
     console.log(
-      `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ${
-        result ? `valid loop (${result.path.length} states)` : "no valid loop"
-      }`,
+      `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ` +
+      `${current.coverage}/${dots.length} dots, ${current.length} states`,
     );
 
-    if (result) {
-      return buildSegments(result.path);
+    if (current.valid && isBetterLoop(current, bestValid)) {
+      bestValid = current;
+
+      if (bestValid.length >= qualityTarget) {
+        const segments = buildSegments(bestValid.result.path);
+        solutionCache.set(cacheKey, segments);
+        return segments;
+      }
+    }
+
+    for (let step = 0; step < MAX_OPTIMIZATION_STEPS; step += 1) {
+      const flip = flipRandomGate(gates, random);
+      const candidate = findBestLoop(gates, dots, threshold);
+
+      if (isBetterLoop(candidate, current)) {
+        current = candidate;
+
+        console.log(
+          `[kolam] optimization ${attempt + 1}.${step + 1}: ` +
+          `${current.coverage}/${dots.length} dots, ${current.length} states`,
+        );
+
+        if (current.valid && isBetterLoop(current, bestValid)) {
+          bestValid = current;
+
+          if (bestValid.length >= qualityTarget) {
+            const segments = buildSegments(bestValid.result.path);
+            solutionCache.set(cacheKey, segments);
+            return segments;
+          }
+        }
+      } else {
+        restoreGate(gates, flip);
+      }
     }
   }
 
-  return [];
+  const segments = bestValid ? buildSegments(bestValid.result.path) : [];
+  solutionCache.set(cacheKey, segments);
+  return segments;
 }
 
 export function buildKolamPath(pattern) {
