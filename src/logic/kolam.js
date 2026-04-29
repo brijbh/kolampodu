@@ -334,7 +334,76 @@ function gatePoint(row, col) {
   };
 }
 
-function buildSegments(path) {
+function getTurnDelta(fromDir, toDir) {
+  return (toDir - fromDir + DIRS.length) % DIRS.length;
+}
+
+function getDistance(firstPoint, secondPoint) {
+  return Math.hypot(firstPoint.x - secondPoint.x, firstPoint.y - secondPoint.y);
+}
+
+function findNearestDot(start, end, dots) {
+  const midpoint = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+
+  return dots
+    .map((dot) => ({
+      row: dot.row,
+      col: dot.col,
+      point: gatePoint(dot.row, dot.col),
+    }))
+    .reduce((nearest, dot) => (
+      !nearest || getDistance(dot.point, midpoint) < getDistance(nearest.point, midpoint)
+        ? dot
+        : nearest
+    ), null);
+}
+
+function getSweepFlag(fromDir, toDir, start, end, center, index) {
+  const delta = getTurnDelta(fromDir, toDir);
+
+  if (delta === 1) return 1;
+  if (delta === 3) return 0;
+
+  const radius = DOT_SPACING * 0.85;
+  const clockwiseControl = getArcControl(start, end, 1, radius);
+  const counterClockwiseControl = getArcControl(start, end, 0, radius);
+
+  if (!center) return index % 2;
+
+  return getDistance(clockwiseControl, center) >= getDistance(counterClockwiseControl, center)
+    ? 1
+    : 0;
+}
+
+function getSegmentRadius(fromState, toState) {
+  return fromState.dir === toState.dir
+    ? DOT_SPACING * 0.85
+    : DOT_SPACING / 2;
+}
+
+function getArcControl(start, end, sweep, radius) {
+  const midpoint = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const normal = sweep
+    ? { x: -dy / length, y: dx / length }
+    : { x: dy / length, y: -dx / length };
+  const offset = Math.max(8, radius - DOT_SPACING / 2);
+
+  return {
+    x: midpoint.x + normal.x * offset,
+    y: midpoint.y + normal.y * offset,
+  };
+}
+
+function buildSegments(path, dots) {
   const segments = [];
 
   for (let i = 0; i < path.length - 1; i++) {
@@ -343,16 +412,20 @@ function buildSegments(path) {
 
     const start = gatePoint(a.row, a.col);
     const end = gatePoint(b.row, b.col);
+    const nearestDot = findNearestDot(start, end, dots);
+    const radius = getSegmentRadius(a, b);
+    const sweep = getSweepFlag(a.dir, b.dir, start, end, nearestDot?.point, i);
+    const control = getArcControl(start, end, sweep, radius);
 
     segments.push({
       id: `seg-${i}`,
       start,
       end,
-      control: {
-        x: (start.x + end.x) / 2,
-        y: (start.y + end.y) / 2,
-      },
-      command: "L",
+      control,
+      center: nearestDot?.point,
+      command: "A",
+      radius,
+      sweep,
     });
   }
 
@@ -395,7 +468,7 @@ export function buildKolamSegments(pattern) {
       bestValid = current;
 
       if (bestValid.length >= qualityTarget) {
-        const segments = buildSegments(bestValid.result.path);
+        const segments = buildSegments(bestValid.result.path, dots);
         solutionCache.set(cacheKey, segments);
         return segments;
       }
@@ -418,7 +491,7 @@ export function buildKolamSegments(pattern) {
           bestValid = current;
 
           if (bestValid.length >= qualityTarget) {
-            const segments = buildSegments(bestValid.result.path);
+            const segments = buildSegments(bestValid.result.path, dots);
             solutionCache.set(cacheKey, segments);
             return segments;
           }
@@ -429,7 +502,7 @@ export function buildKolamSegments(pattern) {
     }
   }
 
-  const segments = bestValid ? buildSegments(bestValid.result.path) : [];
+  const segments = bestValid ? buildSegments(bestValid.result.path, dots) : [];
   solutionCache.set(cacheKey, segments);
   return segments;
 }
@@ -443,13 +516,21 @@ export function buildKolamPath(pattern) {
 
   const commands = [
     `M ${first.start.x} ${first.start.y}`,
-    `L ${first.end.x} ${first.end.y}`,
-    ...rest.map((s) => `L ${s.end.x} ${s.end.y}`),
+    segmentCommand(first),
+    ...rest.map(segmentCommand),
   ];
 
   return commands.join(" ");
 }
 
+function segmentCommand(segment) {
+  if (segment.command === "A") {
+    return `A ${segment.radius} ${segment.radius} 0 0 ${segment.sweep} ${segment.end.x} ${segment.end.y}`;
+  }
+
+  return `Q ${segment.control.x} ${segment.control.y} ${segment.end.x} ${segment.end.y}`;
+}
+
 export function buildSegmentPath(segment) {
-  return `M ${segment.start.x} ${segment.start.y} L ${segment.end.x} ${segment.end.y}`;
+  return `M ${segment.start.x} ${segment.start.y} ${segmentCommand(segment)}`;
 }
