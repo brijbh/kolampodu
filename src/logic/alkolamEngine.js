@@ -5,7 +5,7 @@ const DEFAULT_SPACING = 60;
 const TARGET_OPEN_RATIO = 0.55;
 const MAX_ATTEMPTS = 40;
 const MAX_FLIP_STEPS = 400;
-const DEBUG = true;
+const DEBUG = false;
 
 function createRandom(seedInput) {
   let seed = String(seedInput).split("").reduce(
@@ -25,17 +25,28 @@ function createMatrix(size, value) {
   ));
 }
 
-export function generateSquareDots(nd, spacing = DEFAULT_SPACING) {
+export function generateAlgorithmDots(nd, spacing = DEFAULT_SPACING) {
   const dots = [];
 
-  for (let row = 0; row < nd; row += 1) {
-    for (let col = 0; col < nd; col += 1) {
-      dots.push({
-        row,
-        col,
-        x: col * spacing,
-        y: row * spacing,
-      });
+  for (let i = 0; i < nd; i += 1) {
+    for (let j = 0; j < nd; j += 1) {
+      if ((i + j) % 2 === 0) {
+        const ic = 2 * i - nd + 1;
+        const jc = 2 * j - nd + 1;
+        
+        // Transform algorithm (i, j) to visual (x, y)
+        const x = (ic + jc) / 2;
+        const y = (ic - jc) / 2;
+
+        dots.push({
+          row: i,
+          col: j,
+          ic,
+          jc,
+          x: x * spacing,
+          y: y * spacing,
+        });
+      }
     }
   }
 
@@ -57,13 +68,6 @@ function resetGateMatrix(nd) {
     F[i][0] = 0;
     F[nx - 1][i] = 0;
     F[i][nx - 1] = 0;
-  }
-
-  for (let i = 1; i <= nx - 2; i += 1) {
-    A[i][i] = OPEN;
-    A[i][nx - 1 - i] = OPEN;
-    F[i][i] = 0;
-    F[i][nx - 1 - i] = 0;
   }
 
   return { A, F };
@@ -179,14 +183,6 @@ function nextStep(state, gates, nd) {
     ne = nbeta === 1 ? 1 : 3;
   }
 
-  if (DEBUG) {
-    console.log("NEXT", {
-      from: { icg, jcg, ce },
-      to: { ing, jng, ne },
-      gate: gates[icgx2]?.[jcx2],
-    });
-  }
-
   return {
     icg: ing,
     jcg: jng,
@@ -197,46 +193,25 @@ function nextStep(state, gates, nd) {
 }
 
 function runPath(A, nd, start = makeState(1, 1, 0)) {
-  const ns = 2 * (nd ** 2 + 1) + 5;
+  const ns = 2 * (nd ** 2 + 1) * 2;
   const path = [];
   let state = { ...start };
 
-  for (let step = 0; step < ns - 2; step += 1) {
-    path.push(state);
-
-    if (DEBUG) {
-      console.log("STEP", step, {
-        icg: state.icg,
-        jcg: state.jcg,
-        ce: state.ce,
-        plotI: state.plotI,
-        plotJ: state.plotJ,
-      });
-    }
-
+  for (let step = 0; step < ns; step += 1) {
     const next = nextStep(state, A, nd);
+    path.push(next);
 
     if (
       next.icg === start.icg &&
       next.jcg === start.jcg &&
       next.ce === start.ce
     ) {
-      path.push(next);
-
-      if (DEBUG) {
-        console.log("LOOP CLOSED", {
-          steps: path.length,
-          state: next,
-        });
-      }
-
       return {
         count: path.length,
         path,
         closed: true,
       };
     }
-
     state = next;
   }
 
@@ -248,12 +223,24 @@ function runPath(A, nd, start = makeState(1, 1, 0)) {
 }
 
 function scorePath(result, nd) {
-  const ns = 2 * (nd ** 2 + 1) + 5;
+  const ns = 2 * (nd ** 2 + 1);
+  const visitedDots = new Set();
+  
+  result.path.forEach(p => {
+    const di = Math.round(p.plotI / 2) * 2;
+    const dj = Math.round(p.plotJ / 2) * 2;
+    visitedDots.add(`${di},${dj}`);
+  });
+
+  const expectedDots = (nd ** 2 + 1) / 2;
+  const coverage = visitedDots.size / expectedDots;
 
   return (
-    (result.closed ? 1000 : 0) +
-    (result.count >= ns - 5 ? 500 : 0) +
-    result.count
+    (result.closed ? 2000 : 0) +
+    (coverage >= 1 ? 1000 : 0) +
+    (result.count >= ns ? 500 : 0) +
+    result.count +
+    visitedDots.size * 10
   );
 }
 
@@ -300,13 +287,6 @@ function improveGates(A, F, nd, random) {
       }
     }
 
-    if (DEBUG) {
-      console.log("SCORE UPDATE", {
-        step,
-        bestScore,
-      });
-    }
-
     if (!improved) {
       break;
     }
@@ -319,18 +299,37 @@ function improveGates(A, F, nd, random) {
   };
 }
 
-function loopAroundDot(dot, r) {
-  return [
-    `M ${dot.x - r} ${dot.y}`,
-    `A ${r} ${r} 0 1 0 ${dot.x + r} ${dot.y}`,
-    `A ${r} ${r} 0 1 0 ${dot.x - r} ${dot.y}`,
-  ].join(" ");
-}
+function buildCurvePath(pathPoints, closed) {
+  if (pathPoints.length < 2) return "";
 
-function buildDotLoops(dots, spacing) {
-  const r = spacing * 0.35;
+  if (!closed) {
+    let d = `M ${pathPoints[0].x} ${pathPoints[0].y}`;
+    for (let i = 0; i < pathPoints.length - 1; i += 1) {
+      const p0 = pathPoints[i];
+      const p1 = pathPoints[i + 1];
+      const midX = (p0.x + p1.x) / 2;
+      const midY = (p0.y + p1.y) / 2;
+      if (i === 0) d += ` L ${midX} ${midY}`;
+      else d += ` Q ${p0.x} ${p0.y} ${midX} ${midY}`;
+    }
+    d += ` L ${pathPoints[pathPoints.length - 1].x} ${pathPoints[pathPoints.length - 1].y}`;
+    return d;
+  }
 
-  return dots.map((dot) => loopAroundDot(dot, r)).join(" ");
+  const p = pathPoints;
+  const n = p.length;
+  const startMidX = (p[n - 1].x + p[0].x) / 2;
+  const startMidY = (p[n - 1].y + p[0].y) / 2;
+
+  let d = `M ${startMidX} ${startMidY}`;
+  for (let i = 0; i < n; i += 1) {
+    const p0 = p[i];
+    const p1 = p[(i + 1) % n];
+    const midX = (p0.x + p1.x) / 2;
+    const midY = (p0.y + p1.y) / 2;
+    d += ` Q ${p0.x} ${p0.y} ${midX} ${midY}`;
+  }
+  return d;
 }
 
 export function buildSquareKolam({
@@ -341,43 +340,65 @@ export function buildSquareKolam({
   let best = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    if (DEBUG) {
-      console.group(`ATTEMPT ${attempt}`);
-    }
-
     const random = createRandom(`${seed}:${nd}:${attempt}`);
     const { A, F } = resetGateMatrix(nd);
 
     assignGates(A, F, random);
-
-    if (DEBUG) {
-      console.group("Gate Matrix");
-      console.table(A);
-      console.groupEnd();
-    }
 
     const candidate = improveGates(A, F, nd, random);
 
     if (!best || candidate.score > best.score) {
       best = candidate;
     }
-
-    if (DEBUG) {
-      console.groupEnd();
-    }
   }
 
-  const dots = generateSquareDots(nd, spacing);
+  const dots = generateAlgorithmDots(nd, spacing);
   const result = best?.result ?? { path: [], closed: false, count: 0 };
-  const pathPoints = result.path.map((p) => ({
-    x: p.plotJ * spacing,
-    y: p.plotI * spacing,
-  }));
+  
+  const pathPoints = result.path.map((p) => {
+    const x = (p.plotI + p.plotJ) / 2;
+    const y = (p.plotI - p.plotJ) / 2;
+    return { x: x * spacing, y: y * spacing };
+  });
+
+  const segments = [];
+  if (result.closed && pathPoints.length >= 2) {
+    const p = pathPoints;
+    const n = p.length;
+    for (let i = 0; i < n; i += 1) {
+      const pPrev = p[(i - 1 + n) % n];
+      const pCurr = p[i];
+      const pNext = p[(i + 1) % n];
+      
+      const startX = (pPrev.x + pCurr.x) / 2;
+      const startY = (pPrev.y + pCurr.y) / 2;
+      const endX = (pCurr.x + pNext.x) / 2;
+      const endY = (pCurr.y + pNext.y) / 2;
+
+      segments.push({
+        id: `seg-${i}`,
+        start: { x: startX, y: startY },
+        end: { x: endX, y: endY },
+        control: pCurr,
+        path: `M ${startX} ${startY} Q ${pCurr.x} ${pCurr.y} ${endX} ${endY}`,
+      });
+    }
+  } else if (pathPoints.length >= 2) {
+    for (let i = 0; i < pathPoints.length - 1; i += 1) {
+      segments.push({
+        id: `seg-${i}`,
+        start: pathPoints[i],
+        end: pathPoints[i+1],
+        path: `M ${pathPoints[i].x} ${pathPoints[i].y} L ${pathPoints[i+1].x} ${pathPoints[i+1].y}`,
+      });
+    }
+  }
 
   return {
     dots,
     pathPoints,
-    pathD: buildDotLoops(dots, spacing),
+    segments,
+    pathD: buildCurvePath(pathPoints, result.closed),
     closed: result.closed,
     count: result.count,
     nd,

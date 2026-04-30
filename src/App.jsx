@@ -1,22 +1,21 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 
-import AlkolamSandbox from "./components/AlkolamSandbox";
 import Header from "./components/Header";
-// import KolamCanvas from "./components/KolamCanvas";
-// import Controls from "./components/Controls";
+import KolamCanvas from "./components/KolamCanvas";
+import Controls from "./components/Controls";
 
-// import { createKolamAnimation } from "./logic/animation";
-// import { buildKolamPath, buildKolamSegments } from "./logic/kolam";
+import { createKolamAnimation } from "./logic/animation";
+import { buildSquareKolam } from "./logic/alkolamEngine";
 
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/theme.css";
 
 const SHAPES = [
+  { id: "diamond", label: "Diamond", pattern: [1, 3, 5, 3, 1], nd: 5 },
   { id: "triangle", label: "Triangle", pattern: [5, 4, 3, 2, 1] },
   { id: "circle", label: "Circle", pattern: [3, 5, 5, 5, 3] },
   { id: "square", label: "Square", pattern: [5, 5, 5, 5, 5] },
-  { id: "diamond", label: "Diamond", pattern: [1, 2, 3, 4, 3, 2, 1] },
 ];
 
 function ShapeSelector({ selectedShape, onSelectShape }) {
@@ -42,54 +41,61 @@ function ShapeSelector({ selectedShape, onSelectShape }) {
 }
 
 export default function App() {
-  const [selectedShape, setSelectedShape] = useState("triangle");
+  const [selectedShape, setSelectedShape] = useState("diamond");
   const shape = SHAPES.find(({ id }) => id === selectedShape) ?? SHAPES[0];
   const pattern = shape.pattern;
   const gridLabel = pattern.join(" - ");
-  // const segments = useMemo(() => buildKolamSegments(pattern), [pattern]);
-  // const path = useMemo(() => buildKolamPath(pattern), [pattern]);
-  // const animationRef = useRef(null);
-  // const [progress, setProgress] = useState(0);
-  // const [isPlaying, setIsPlaying] = useState(false);
-  // const [hasAnimationStarted, setHasAnimationStarted] = useState(false);
 
-  // useEffect(() => {
-  //   animationRef.current = createKolamAnimation({
-  //     onProgress: setProgress,
-  //     onComplete: () => setIsPlaying(false),
-  //   });
+  const kolam = useMemo(() => {
+    if (shape.id === "diamond") {
+      return buildSquareKolam({ nd: shape.nd });
+    }
+    // Fallback or other shapes
+    return buildSquareKolam({ nd: 5 });
+  }, [shape]);
 
-  //   return () => {
-  //     animationRef.current?.pause();
-  //   };
-  // }, []);
+  const animationRef = useRef(null);
+  const [progress, setProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasAnimationStarted, setHasAnimationStarted] = useState(false);
 
-  // const handlePlay = () => {
-  //   if (animationRef.current?.progress >= 1) {
-  //     animationRef.current.reset();
-  //   }
+  useEffect(() => {
+    animationRef.current = createKolamAnimation({
+      onProgress: setProgress,
+      onComplete: () => setIsPlaying(false),
+    });
 
-  //   animationRef.current?.start();
-  //   setIsPlaying(true);
-  //   setHasAnimationStarted(true);
-  // };
+    return () => {
+      animationRef.current?.pause();
+    };
+  }, []);
 
-  // const handlePause = () => {
-  //   animationRef.current?.pause();
-  //   setIsPlaying(false);
-  // };
+  const handlePlay = () => {
+    if (animationRef.current?.progress >= 1) {
+      animationRef.current.reset();
+    }
 
-  // const handleReset = () => {
-  //   animationRef.current?.reset();
-  //   setIsPlaying(false);
-  //   setHasAnimationStarted(false);
-  // };
+    animationRef.current?.start();
+    setIsPlaying(true);
+    setHasAnimationStarted(true);
+  };
+
+  const handlePause = () => {
+    animationRef.current?.pause();
+    setIsPlaying(false);
+  };
+
+  const handleReset = () => {
+    animationRef.current?.reset();
+    setIsPlaying(false);
+    setHasAnimationStarted(false);
+  };
 
   const handleSelectShape = (shapeId) => {
     setSelectedShape(shapeId);
-    // animationRef.current?.reset();
-    // setIsPlaying(false);
-    // setHasAnimationStarted(false);
+    animationRef.current?.reset();
+    setIsPlaying(false);
+    setHasAnimationStarted(false);
   };
 
   return (
@@ -132,21 +138,23 @@ export default function App() {
             <span aria-hidden="true">⌄</span>
           </button>
         </section>
-        <AlkolamSandbox />
-        {/* <KolamCanvas
-          pattern={pattern}
-          path={path}
-          segments={segments}
+        
+        <KolamCanvas
+          dots={kolam.dots}
+          path={kolam.pathD}
+          segments={kolam.segments}
           progress={progress}
           showHint={!hasAnimationStarted}
-        /> */}
-        {/* <Controls
+        />
+
+        <Controls
           isPlaying={isPlaying}
           progress={progress}
           onPlay={handlePlay}
           onPause={handlePause}
           onReset={handleReset}
-        /> */}
+        />
+
         <nav className="mobile-nav" aria-label="Primary">
           <a className="mobile-nav-item is-active" href="#home">
             <span aria-hidden="true">⌂</span>

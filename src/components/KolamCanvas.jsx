@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { generateDotGrid } from "../logic/grid";
 import {
   getContinuousDrawState,
   getDotMaterial,
@@ -20,8 +19,7 @@ function getSafePathLength(pathElement) {
   }
 }
 
-export default function KolamCanvas({ pattern, path, segments, progress, showHint }) {
-  const dots = generateDotGrid(pattern);
+export default function KolamCanvas({ dots = [], path, segments, progress, showHint }) {
   const pathRef = useRef(null);
   const segmentRefs = useRef([]);
   const [pathLength, setPathLength] = useState(0);
