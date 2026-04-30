@@ -4,8 +4,8 @@ import { buildSquareKolam } from "../logic/alkolamEngine";
 
 const PADDING = 48;
 
-function getBounds(dots, pathPoints) {
-  const points = [...dots, ...pathPoints];
+function getBounds(dots) {
+  const points = [...dots];
 
   if (!points.length) {
     return {
@@ -31,7 +31,7 @@ function getBounds(dots, pathPoints) {
 
 export default function AlkolamSandbox() {
   const kolam = useMemo(() => buildSquareKolam({ nd: 5 }), []);
-  const bounds = getBounds(kolam.dots, kolam.pathPoints);
+  const bounds = getBounds(kolam.dots);
 
   return (
     <section className="alkolam-sandbox">
@@ -56,15 +56,6 @@ export default function AlkolamSandbox() {
             cy={dot.y}
             r="4"
             className="dot"
-          />
-        ))}
-        {kolam.pathPoints.map((point, index) => (
-          <circle
-            key={`path-point-${index}`}
-            cx={point.x}
-            cy={point.y}
-            r="2"
-            fill="red"
           />
         ))}
       </svg>

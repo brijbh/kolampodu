@@ -285,21 +285,18 @@ function improveGates(A, F, nd, random) {
   };
 }
 
-export function toSvgPoint(plotI, plotJ, nd, spacing = DEFAULT_SPACING) {
-  const offset = (nd - 1) / 2;
-
-  return {
-    x: (plotJ + offset) * spacing,
-    y: (plotI + offset) * spacing,
-  };
+function loopAroundDot(dot, r) {
+  return [
+    `M ${dot.x - r} ${dot.y}`,
+    `A ${r} ${r} 0 1 0 ${dot.x + r} ${dot.y}`,
+    `A ${r} ${r} 0 1 0 ${dot.x - r} ${dot.y}`,
+  ].join(" ");
 }
 
-function buildLinePath(points) {
-  if (!points.length) return "";
+function buildDotLoops(dots, spacing) {
+  const r = spacing * 0.35;
 
-  return points.map((point, index) => (
-    `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`
-  )).join(" ");
+  return dots.map((dot) => loopAroundDot(dot, r)).join(" ");
 }
 
 export function buildSquareKolam({
@@ -324,14 +321,10 @@ export function buildSquareKolam({
 
   const dots = generateSquareDots(nd, spacing);
   const result = best?.result ?? { path: [], closed: false, count: 0 };
-  const pathPoints = result.path.map((point) => (
-    toSvgPoint(point.plotI, point.plotJ, nd, spacing)
-  ));
 
   return {
     dots,
-    pathPoints,
-    pathD: buildLinePath(pathPoints),
+    pathD: buildDotLoops(dots, spacing),
     closed: result.closed,
     count: result.count,
     nd,
