@@ -3,15 +3,8 @@ import { DOT_SPACING, getPatternWidth } from "./grid";
 const OPEN = 1;
 const CLOSED = 0;
 const MAX_ATTEMPTS = 50;
-const MAX_OPTIMIZATION_STEPS = 200;
+const MAX_SIMULATION_STEPS = 2000;
 const solutionCache = new Map();
-
-const DIRS = [
-  { dr: 0, dc: 1 },   // east
-  { dr: 1, dc: 0 },   // south
-  { dr: 0, dc: -1 },  // west
-  { dr: -1, dc: 0 },  // north
-];
 
 function createRandom(pattern, attempt) {
   let seed = `${pattern.join(",")}:${attempt}`.split("").reduce(
@@ -53,56 +46,6 @@ function createGateMatrix(pattern, attempt) {
   return gates;
 }
 
-function isBoundaryGate(gates, row, col) {
-  return (
-    row === 0 ||
-    col === 0 ||
-    row === gates.length - 1 ||
-    col === gates[0].length - 1
-  );
-}
-
-function createGridDots(pattern) {
-  const width = getPatternWidth(pattern);
-
-  return pattern.flatMap((count, row) => {
-    const offset = (width - count) / 2;
-
-    return Array.from({ length: count }, (_, col) => ({
-      row: row + 0.5,
-      col: offset + col + 0.5,
-    }));
-  });
-}
-
-function buildActiveMask(pattern) {
-  const mask = [];
-  const maxWidth = getPatternWidth(pattern);
-
-  for (let row = 0; row < pattern.length; row += 1) {
-    const count = pattern[row];
-    const start = (maxWidth - count) / 2;
-    const end = start + count;
-
-    mask[row] = [];
-
-    for (let col = 0; col < maxWidth; col += 1) {
-      mask[row][col] = col < end && col + 1 > start;
-    }
-  }
-
-  return mask;
-}
-
-function isGateActive(row, col, mask) {
-  return Boolean(
-    mask[row]?.[col] ||
-    mask[row]?.[col - 1] ||
-    mask[row - 1]?.[col] ||
-    mask[row - 1]?.[col - 1],
-  );
-}
-
 // ----------------------
 // Next State (CORE)
 // ----------------------
@@ -112,63 +55,71 @@ function makeState(icg, jcg, ce) {
     icg,
     jcg,
     ce,
-    row: icg,
-    col: jcg,
-    dir: ce,
+    plotI: icg,
+    plotJ: jcg,
   };
 }
 
-function nextStep(state, gates, mask) {
-  const gate = isGateActive(state.icg, state.jcg, mask)
-    ? gates[state.icg][state.jcg]
-    : CLOSED;
-  const ce = gate === OPEN ? state.ce : (state.ce + 1) % DIRS.length;
-  const move = DIRS[ce];
+function nextStep(state, gates, ND) {
+  const { icg, jcg, ce } = state;
 
-  const next = makeState(
-    state.icg + move.dr,
-    state.jcg + move.dc,
-    ce,
-  );
+  const icgx = icg + ND;
+  const jcx = jcg + ND;
 
-  return isGateActive(next.icg, next.jcg, mask) ? next : null;
+  const icgx2 = Math.floor(icgx / 2);
+  const jcx2 = Math.floor(jcx / 2);
+
+  const calpha = ce % 2;
+  const cbeta = ce > 1 ? -1 : 1;
+
+  const cgamma = (Math.trunc(icgx + jcx) % 4 === 0) ? -1 : 1;
+
+  const cg = gates[icgx2]?.[jcx2] > 0.5 ? 1 : 0;
+  const cgd = 1 - cg;
+  const calphad = 1 - calpha;
+
+  const nalpha = cg * calpha + cgd * calphad;
+  const nbeta = (cg + cgd * cgamma) * cbeta;
+
+  const nh = (calphad * cgamma * cgd + calpha * cg) * cbeta;
+  const nv = (calpha * cgamma * cgd + calphad * cg) * cbeta;
+
+  const ing = Math.trunc(icg + nh * 2);
+  const jng = Math.trunc(jcg + nv * 2);
+
+  const ingp = icg + cgd * (calphad * cgamma - calpha) * cbeta * 0.5;
+  const jngp = jcg + cgd * (calpha * cgamma - calphad) * cbeta * 0.5;
+
+  let ne;
+
+  if (nalpha === 0) {
+    ne = nbeta === 1 ? 0 : 2;
+  } else {
+    ne = nbeta === 1 ? 1 : 3;
+  }
+
+  return {
+    icg: ing,
+    jcg: jng,
+    ce: ne,
+    plotI: ingp,
+    plotJ: jngp,
+  };
 }
 
 // ----------------------
 // Simulation
 // ----------------------
 
-function simulate(gates, start, mask) {
-  const visited = new Set();
+function simulate(gates, start, ND) {
   const path = [];
 
   let state = { ...start };
 
-  while (true) {
-    if (!isGateActive(state.icg, state.jcg, mask)) {
-      return { closed: false, path };
-    }
-
-    const key = `${state.icg}:${state.jcg}:${state.ce}`;
-
-    if (visited.has(key)) {
-      return { closed: false, path };
-    }
-
-    visited.add(key);
+  for (let step = 0; step < MAX_SIMULATION_STEPS; step += 1) {
     path.push(state);
 
-    const next = nextStep(state, gates, mask);
-
-    if (
-      !next ||
-      next.icg < 0 ||
-      next.jcg < 0 ||
-      next.icg >= gates.length ||
-      next.jcg >= gates[0].length
-    ) {
-      return { closed: false, path };
-    }
+    const next = nextStep(state, gates, ND);
 
     if (
       next.icg === start.icg &&
@@ -181,22 +132,13 @@ function simulate(gates, start, mask) {
 
     state = next;
   }
+
+  return { closed: false, path };
 }
 
 // ----------------------
 // Find valid loop
 // ----------------------
-
-function isDotCovered(dot, path) {
-  return path.some((point) => (
-    Math.abs(point.row - dot.row) <= 1 &&
-    Math.abs(point.col - dot.col) <= 1
-  ));
-}
-
-function getCoveredDots(dots, path) {
-  return dots.filter((dot) => isDotCovered(dot, path));
-}
 
 function isClosedLoop(result) {
   const [start] = result?.path ?? [];
@@ -212,35 +154,26 @@ function isClosedLoop(result) {
   );
 }
 
-function isValidLoop(result, dots) {
-  const coveredDots = getCoveredDots(dots, result?.path ?? []);
-
+function isValidLoop(result) {
   return Boolean(
     isClosedLoop(result) &&
-    result.path.length >= dots.length * 2 &&
-    coveredDots.length === dots.length
+    result.path.length > 1
   );
 }
 
-function scoreLoop(simulation, dots) {
-  const covered = getCoveredDots(dots, simulation?.path ?? []).length;
-
+function scoreLoop(simulation) {
   return (
     (simulation?.closed ? 1000 : 0) +
-    (covered === dots.length ? 500 : 0) +
     (simulation?.path?.length ?? 0)
   );
 }
 
-function evaluateLoop(result, dots) {
-  const coveredDots = getCoveredDots(dots, result?.path ?? []);
-
+function evaluateLoop(result) {
   return {
     result,
-    coverage: coveredDots.length,
     length: result?.path?.length ?? 0,
-    score: scoreLoop(result, dots),
-    valid: isValidLoop(result, dots),
+    score: scoreLoop(result),
+    valid: isValidLoop(result),
   };
 }
 
@@ -253,98 +186,18 @@ function isBetterLoop(candidate, current) {
   return candidate.length > current.length;
 }
 
-function findFirstActiveGate(mask) {
-  const rows = mask.length + 1;
-  const cols = Math.max(...mask.map((row) => row.length), 0) + 1;
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      if (isGateActive(row, col, mask)) {
-        return makeState(row, col, 0);
-      }
-    }
-  }
-
-  return null;
-}
-
-function getStartStates(gates, mask) {
-  const first = findFirstActiveGate(mask);
-  const starts = [];
-
-  if (first) {
-    for (let dir = 0; dir < DIRS.length; dir += 1) {
-      starts.push(makeState(first.icg, first.jcg, dir));
-    }
-  }
-
-  for (let row = 0; row < gates.length; row += 1) {
-    for (let col = 0; col < gates[0].length; col += 1) {
-      if (!isGateActive(row, col, mask)) {
-        continue;
-      }
-
-      for (let dir = 0; dir < DIRS.length; dir += 1) {
-        if (first && row === first.icg && col === first.jcg) {
-          continue;
-        }
-
-        starts.push(makeState(row, col, dir));
-      }
-    }
-  }
-
-  return starts;
-}
-
-function findBestLoop(gates, dots, mask) {
-  let best = null;
-
-  for (const start of getStartStates(gates, mask)) {
-    const candidate = evaluateLoop(
-      simulate(gates, start, mask),
-      dots,
-    );
-
-    if (isBetterLoop(candidate, best)) {
-      best = candidate;
-    }
-  }
-
-  return best;
-}
-
-function flipRandomGate(gates, random) {
-  const row = 1 + Math.floor(random() * (gates.length - 2));
-  const col = 1 + Math.floor(random() * (gates[0].length - 2));
-
-  if (isBoundaryGate(gates, row, col)) {
-    return null;
-  }
-
-  gates[row][col] = gates[row][col] === OPEN ? CLOSED : OPEN;
-
-  return { row, col };
-}
-
-function restoreGate(gates, flip) {
-  if (!flip) return;
-
-  gates[flip.row][flip.col] = gates[flip.row][flip.col] === OPEN ? CLOSED : OPEN;
-}
-
 // ----------------------
 // Convert to SVG segments
 // ----------------------
 
-function toSVG(plotI, plotJ) {
+function algorithmPointToSvg(plotI, plotJ, ND) {
   return {
-    x: (plotJ - 0.5) * DOT_SPACING,
-    y: (plotI - 0.5) * DOT_SPACING,
+    x: (plotJ + ND) * (DOT_SPACING / 2),
+    y: (plotI + ND) * (DOT_SPACING / 2),
   };
 }
 
-function buildSmoothPath(path) {
+function buildSmoothPath(path, ND) {
   if (!path.length) return "";
 
   let d = "";
@@ -353,7 +206,7 @@ function buildSmoothPath(path) {
     const p = path[i];
     const prev = path[i - 1];
     const next = path[i + 1] ?? path[1];
-    const point = toSVG(p.icg, p.jcg);
+    const point = algorithmPointToSvg(p.plotI, p.plotJ, ND);
 
     if (i === 0) {
       d += `M ${point.x} ${point.y}`;
@@ -361,8 +214,8 @@ function buildSmoothPath(path) {
     }
 
     if (prev && next) {
-      const prevPoint = toSVG(prev.icg, prev.jcg);
-      const nextPoint = toSVG(next.icg, next.jcg);
+      const prevPoint = algorithmPointToSvg(prev.plotI, prev.plotJ, ND);
+      const nextPoint = algorithmPointToSvg(next.plotI, next.plotJ, ND);
 
       const cx = (prevPoint.x + nextPoint.x) / 2;
       const cy = (prevPoint.y + nextPoint.y) / 2;
@@ -374,14 +227,19 @@ function buildSmoothPath(path) {
   return d;
 }
 
-function buildSegments(path) {
+function buildSegments(path, ND) {
   if (path.length < 2) return [];
 
-  const start = toSVG(path[0].icg, path[0].jcg);
-  const end = toSVG(path[path.length - 1].icg, path[path.length - 1].jcg);
-  const control = toSVG(
-    (path[0].icg + path[Math.floor(path.length / 2)].icg) / 2,
-    (path[0].jcg + path[Math.floor(path.length / 2)].jcg) / 2,
+  const start = algorithmPointToSvg(path[0].plotI, path[0].plotJ, ND);
+  const end = algorithmPointToSvg(
+    path[path.length - 1].plotI,
+    path[path.length - 1].plotJ,
+    ND,
+  );
+  const control = algorithmPointToSvg(
+    (path[0].plotI + path[Math.floor(path.length / 2)].plotI) / 2,
+    (path[0].plotJ + path[Math.floor(path.length / 2)].plotJ) / 2,
+    ND,
   );
 
   return [{
@@ -390,7 +248,7 @@ function buildSegments(path) {
     end,
     control,
     command: "Q",
-    path: buildSmoothPath(path),
+    path: buildSmoothPath(path, ND),
   }];
 }
 
@@ -405,15 +263,14 @@ export function buildKolamSegments(pattern) {
     return solutionCache.get(cacheKey);
   }
 
-  const dots = createGridDots(pattern);
-  const mask = buildActiveMask(pattern);
-  const qualityTarget = dots.length * 6;
+  const ND = getPatternWidth(pattern);
   let bestValid = null;
+  const start = makeState(1, 1, 0);
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const random = createRandom(pattern, `opt-${attempt}`);
     const gates = createGateMatrix(pattern, attempt);
-    let current = findBestLoop(gates, dots, mask);
+    const current = evaluateLoop(simulate(gates, start, ND));
+
     console.log({
       closed: current.result.closed,
       steps: current.result.path.length,
@@ -421,49 +278,19 @@ export function buildKolamSegments(pattern) {
 
     console.log(
       `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ` +
-      `score ${current.score}, ${current.coverage}/${dots.length} dots, ` +
+      `score ${current.score}, ` +
       `${current.length} states`,
     );
 
     if (current.valid && isBetterLoop(current, bestValid)) {
       bestValid = current;
-
-      if (bestValid.length >= qualityTarget) {
-        const segments = buildSegments(bestValid.result.path);
-        solutionCache.set(cacheKey, segments);
-        return segments;
-      }
-    }
-
-    for (let step = 0; step < MAX_OPTIMIZATION_STEPS; step += 1) {
-      const flip = flipRandomGate(gates, random);
-      const candidate = findBestLoop(gates, dots, mask);
-
-      if (isBetterLoop(candidate, current)) {
-        current = candidate;
-
-        console.log(
-          `[kolam] optimization ${attempt + 1}.${step + 1}: ` +
-          `score ${current.score}, ${current.coverage}/${dots.length} dots, ` +
-          `${current.length} states`,
-        );
-
-        if (current.valid && isBetterLoop(current, bestValid)) {
-          bestValid = current;
-
-          if (bestValid.length >= qualityTarget) {
-            const segments = buildSegments(bestValid.result.path);
-            solutionCache.set(cacheKey, segments);
-            return segments;
-          }
-        }
-      } else {
-        restoreGate(gates, flip);
-      }
+      const segments = buildSegments(bestValid.result.path, ND);
+      solutionCache.set(cacheKey, segments);
+      return segments;
     }
   }
 
-  const segments = bestValid ? buildSegments(bestValid.result.path) : [];
+  const segments = bestValid ? buildSegments(bestValid.result.path, ND) : [];
   solutionCache.set(cacheKey, segments);
   return segments;
 }
