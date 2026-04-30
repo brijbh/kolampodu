@@ -185,8 +185,7 @@ function nextStep(state, gates, ND) {
 // Simulation
 // ----------------------
 
-function pathCount(A) {
-  const start = makeState(1, 1, 0);
+function runPath(A, start) {
   const path = [];
 
   let state = { ...start };
@@ -219,35 +218,64 @@ function pathCount(A) {
   };
 }
 
+function findValidStart(A) {
+  if (!A.length) return makeState(1, 1, 0);
+
+  let best = null;
+
+  for (let i = -ND; i <= ND; i += 2) {
+    for (let j = -ND; j <= ND; j += 2) {
+      for (let ce = 0; ce < 4; ce += 1) {
+        const start = makeState(i, j, ce);
+        const candidate = runPath(A, start);
+
+        if (
+          candidate.closed &&
+          (!best || scoreLoop(candidate) > scoreLoop(best.result))
+        ) {
+          best = { start, result: candidate };
+        }
+      }
+    }
+  }
+
+  return best?.start ?? makeState(1, 1, 0);
+}
+
+function pathCount(A) {
+  return runPath(A, findValidStart(A));
+}
+
 // ----------------------
 // Find valid loop
 // ----------------------
 
-function isClosedLoop(result) {
-  const [start] = result?.path ?? [];
-  const end = result?.path?.[result.path.length - 1];
+function coversAllDots(path, ND) {
+  const visited = new Set();
 
-  return Boolean(
-    result?.closed
-    && start
-    && end
-    && end.icg === start.icg
-    && end.jcg === start.jcg
-    && end.ce === start.ce,
-  );
+  for (const p of path) {
+    const key = `${Math.round(p.plotI)},${Math.round(p.plotJ)}`;
+    visited.add(key);
+  }
+
+  const expected = ND * ND;
+
+  return visited.size >= expected * 0.6;
 }
 
 function isValidLoop(result) {
   return Boolean(
-    isClosedLoop(result) &&
-    result.count >= NS - 5
+    result?.closed &&
+    result.count >= NS - 5 &&
+    coversAllDots(result.path, ND)
   );
 }
 
 function scoreLoop(simulation) {
   return (
     (simulation?.closed ? 1000 : 0) +
-    (simulation?.path?.length ?? 0)
+    (coversAllDots(simulation?.path ?? [], ND) ? 500 : 0) +
+    (simulation?.count ?? 0)
   );
 }
 
@@ -322,7 +350,7 @@ function improveGates(A, F, random) {
 }
 
 function buildNotebookSolution(pattern) {
-  let best = null;
+  let bestValid = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const random = createRandom(pattern, `notebook-${attempt}`);
@@ -341,19 +369,19 @@ function buildNotebookSolution(pattern) {
       `count ${current.length}/${NS - 5}`,
     );
 
-    if (isBetterLoop(current, best)) {
-      best = {
+    if (current.valid && isBetterLoop(current, bestValid)) {
+      bestValid = {
         ...current,
         gates: cloneMatrix(A),
       };
     }
 
-    if (current.valid) {
-      return current;
+    if (bestValid) {
+      return bestValid;
     }
   }
 
-  return best?.valid ? best : null;
+  return bestValid;
 }
 
 // ----------------------
@@ -374,8 +402,6 @@ function buildSmoothPath(path, ND) {
 
   for (let i = 0; i < path.length; i += 1) {
     const p = path[i];
-    const prev = path[i - 1];
-    const next = path[i + 1] ?? path[1];
     const point = algorithmPointToSvg(p.plotI, p.plotJ, ND);
 
     if (i === 0) {
@@ -383,15 +409,7 @@ function buildSmoothPath(path, ND) {
       continue;
     }
 
-    if (prev && next) {
-      const prevPoint = algorithmPointToSvg(prev.plotI, prev.plotJ, ND);
-      const nextPoint = algorithmPointToSvg(next.plotI, next.plotJ, ND);
-
-      const cx = (prevPoint.x + nextPoint.x) / 2;
-      const cy = (prevPoint.y + nextPoint.y) / 2;
-
-      d += ` Q ${cx} ${cy}, ${point.x} ${point.y}`;
-    }
+    d += ` L ${point.x} ${point.y}`;
   }
 
   return d;
