@@ -369,9 +369,14 @@ export function buildSquareKolam({
 
   const dots = generateSquareDots(nd, spacing);
   const result = best?.result ?? { path: [], closed: false, count: 0 };
+  const pathPoints = result.path.map((p) => ({
+    x: p.plotJ * spacing,
+    y: p.plotI * spacing,
+  }));
 
   return {
     dots,
+    pathPoints,
     pathD: buildDotLoops(dots, spacing),
     closed: result.closed,
     count: result.count,
