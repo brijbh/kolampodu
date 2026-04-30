@@ -1,13 +1,18 @@
-import { DOT_SPACING, getPatternWidth } from "./grid";
+import { DOT_SPACING } from "./grid";
 
 const OPEN = 1;
 const CLOSED = 0;
-const MAX_ATTEMPTS = 50;
-const MAX_SIMULATION_STEPS = 2000;
+const ND = 5;
+const NX = ND + 1;
+const NS = 2 * (ND ** 2 + 1) + 5;
+const MAX_ATTEMPTS = 40;
+const MAX_FLIP_STEPS = 400;
+const TARGET_OPEN_RATIO = 0.55;
 const solutionCache = new Map();
 
 function createRandom(pattern, attempt) {
-  let seed = `${pattern.join(",")}:${attempt}`.split("").reduce(
+  const key = Array.isArray(pattern) ? pattern.join(",") : String(pattern);
+  let seed = `${key}:${attempt}`.split("").reduce(
     (hash, char) => ((hash << 5) - hash + char.charCodeAt(0)) >>> 0,
     2166136261,
   );
@@ -22,28 +27,97 @@ function createRandom(pattern, attempt) {
 // Gate Matrix
 // ----------------------
 
-function createGateMatrix(pattern, attempt) {
-  const rows = pattern.length + 1;
-  const cols = getPatternWidth(pattern) + 1;
-  const random = createRandom(pattern, attempt);
+function createMatrix(size, value) {
+  return Array.from({ length: size }, () => (
+    Array.from({ length: size }, () => value)
+  ));
+}
 
-  const gates = [];
+function resetGateMatrix() {
+  const A = createMatrix(NX, 99);
+  const F = createMatrix(NX, 1);
 
-  for (let r = 0; r < rows; r++) {
-    gates[r] = [];
-    for (let c = 0; c < cols; c++) {
-      const isBoundary =
-        r === 0 || c === 0 || r === rows - 1 || c === cols - 1;
+  for (let i = 0; i < NX; i += 1) {
+    A[0][i] = CLOSED;
+    A[i][0] = CLOSED;
+    A[NX - 1][i] = CLOSED;
+    A[i][NX - 1] = CLOSED;
 
-      gates[r][c] = isBoundary
-        ? CLOSED
-        : random() < 0.55
-        ? OPEN
-        : CLOSED;
+    F[0][i] = 0;
+    F[i][0] = 0;
+    F[NX - 1][i] = 0;
+    F[i][NX - 1] = 0;
+  }
+
+  for (let i = 1; i <= NX - 2; i += 1) {
+    A[i][i] = OPEN;
+    A[i][NX - 1 - i] = OPEN;
+    F[i][i] = 0;
+    F[i][NX - 1 - i] = 0;
+  }
+
+  return { A, F };
+}
+
+function uniqueCells(cells) {
+  const seen = new Set();
+
+  return cells.filter(([i, j]) => {
+    const key = `${i}:${j}`;
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function getSymmetricCells(i, j) {
+  return uniqueCells([
+    [i, j],
+    [j, i],
+    [NX - 1 - i, NX - 1 - j],
+    [NX - 1 - j, NX - 1 - i],
+  ]);
+}
+
+function isMutableGroup(cells, F) {
+  return cells.every(([i, j]) => F[i]?.[j] === 1);
+}
+
+function mutableGateGroups(F) {
+  const groups = [];
+  const seen = new Set();
+
+  for (let i = 1; i <= NX - 2; i += 1) {
+    for (let j = 1; j <= NX - 2; j += 1) {
+      const cells = getSymmetricCells(i, j);
+      const key = cells.map(([r, c]) => `${r}:${c}`).sort().join("|");
+
+      if (seen.has(key) || !isMutableGroup(cells, F)) {
+        continue;
+      }
+
+      seen.add(key);
+      groups.push(cells);
     }
   }
 
-  return gates;
+  return groups;
+}
+
+function setGateGroup(A, cells, value) {
+  for (const [i, j] of cells) {
+    A[i][j] = value;
+  }
+}
+
+function assignGates(A, F, random) {
+  for (const cells of mutableGateGroups(F)) {
+    setGateGroup(A, cells, random() < TARGET_OPEN_RATIO ? OPEN : CLOSED);
+  }
+
+  return A;
 }
 
 // ----------------------
@@ -111,15 +185,16 @@ function nextStep(state, gates, ND) {
 // Simulation
 // ----------------------
 
-function simulate(gates, start, ND) {
+function pathCount(A) {
+  const start = makeState(1, 1, 0);
   const path = [];
 
   let state = { ...start };
 
-  for (let step = 0; step < MAX_SIMULATION_STEPS; step += 1) {
+  for (let step = 0; step < NS - 2; step += 1) {
     path.push(state);
 
-    const next = nextStep(state, gates, ND);
+    const next = nextStep(state, A, ND);
 
     if (
       next.icg === start.icg &&
@@ -127,13 +202,21 @@ function simulate(gates, start, ND) {
       next.ce === start.ce
     ) {
       path.push(next);
-      return { closed: true, path };
+      return {
+        count: path.length,
+        path,
+        closed: true,
+      };
     }
 
     state = next;
   }
 
-  return { closed: false, path };
+  return {
+    count: path.length,
+    path,
+    closed: false,
+  };
 }
 
 // ----------------------
@@ -157,7 +240,7 @@ function isClosedLoop(result) {
 function isValidLoop(result) {
   return Boolean(
     isClosedLoop(result) &&
-    result.path.length > 1
+    result.count >= NS - 5
   );
 }
 
@@ -171,7 +254,7 @@ function scoreLoop(simulation) {
 function evaluateLoop(result) {
   return {
     result,
-    length: result?.path?.length ?? 0,
+    length: result?.count ?? 0,
     score: scoreLoop(result),
     valid: isValidLoop(result),
   };
@@ -184,6 +267,93 @@ function isBetterLoop(candidate, current) {
   }
 
   return candidate.length > current.length;
+}
+
+function cloneMatrix(matrix) {
+  return matrix.map((row) => [...row]);
+}
+
+function flipGroup(A, cells) {
+  const nextValue = A[cells[0][0]][cells[0][1]] === OPEN ? CLOSED : OPEN;
+  setGateGroup(A, cells, nextValue);
+}
+
+function shuffle(items, random) {
+  const copy = [...items];
+
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+
+  return copy;
+}
+
+function improveGates(A, F, random) {
+  const groups = mutableGateGroups(F);
+  let best = evaluateLoop(pathCount(A));
+
+  for (let step = 0; step < MAX_FLIP_STEPS && !best.valid; step += 1) {
+    let improved = false;
+
+    for (const cells of shuffle(groups, random)) {
+      flipGroup(A, cells);
+
+      const candidate = evaluateLoop(pathCount(A));
+
+      if (candidate.length > best.length) {
+        best = candidate;
+        improved = true;
+
+        if (best.valid) {
+          break;
+        }
+      } else {
+        flipGroup(A, cells);
+      }
+    }
+
+    if (!improved) {
+      break;
+    }
+  }
+
+  return best;
+}
+
+function buildNotebookSolution(pattern) {
+  let best = null;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const random = createRandom(pattern, `notebook-${attempt}`);
+    const { A, F } = resetGateMatrix();
+    assignGates(A, F, random);
+
+    const current = improveGates(A, F, random);
+
+    console.log({
+      closed: current.result.closed,
+      steps: current.result.count,
+    });
+
+    console.log(
+      `[kolam] notebook attempt ${attempt + 1}/${MAX_ATTEMPTS}: ` +
+      `count ${current.length}/${NS - 5}`,
+    );
+
+    if (isBetterLoop(current, best)) {
+      best = {
+        ...current,
+        gates: cloneMatrix(A),
+      };
+    }
+
+    if (current.valid) {
+      return current;
+    }
+  }
+
+  return best?.valid ? best : null;
 }
 
 // ----------------------
@@ -257,40 +427,14 @@ function buildSegments(path, ND) {
 // ----------------------
 
 export function buildKolamSegments(pattern) {
-  const cacheKey = pattern.join("-");
+  const cacheKey = "canonical-notebook-nd-5";
 
   if (solutionCache.has(cacheKey)) {
     return solutionCache.get(cacheKey);
   }
 
-  const ND = getPatternWidth(pattern);
-  let bestValid = null;
-  const start = makeState(1, 1, 0);
-
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const gates = createGateMatrix(pattern, attempt);
-    const current = evaluateLoop(simulate(gates, start, ND));
-
-    console.log({
-      closed: current.result.closed,
-      steps: current.result.path.length,
-    });
-
-    console.log(
-      `[kolam] gate attempt ${attempt + 1}/${MAX_ATTEMPTS}: ` +
-      `score ${current.score}, ` +
-      `${current.length} states`,
-    );
-
-    if (current.valid && isBetterLoop(current, bestValid)) {
-      bestValid = current;
-      const segments = buildSegments(bestValid.result.path, ND);
-      solutionCache.set(cacheKey, segments);
-      return segments;
-    }
-  }
-
-  const segments = bestValid ? buildSegments(bestValid.result.path, ND) : [];
+  const solution = buildNotebookSolution(pattern);
+  const segments = solution ? buildSegments(solution.result.path, ND) : [];
   solutionCache.set(cacheKey, segments);
   return segments;
 }
