@@ -5,6 +5,7 @@ const DEFAULT_SPACING = 60;
 const TARGET_OPEN_RATIO = 0.55;
 const MAX_ATTEMPTS = 40;
 const MAX_FLIP_STEPS = 400;
+const DEBUG = true;
 
 function createRandom(seedInput) {
   let seed = String(seedInput).split("").reduce(
@@ -178,6 +179,14 @@ function nextStep(state, gates, nd) {
     ne = nbeta === 1 ? 1 : 3;
   }
 
+  if (DEBUG) {
+    console.log("NEXT", {
+      from: { icg, jcg, ce },
+      to: { ing, jng, ne },
+      gate: gates[icgx2]?.[jcx2],
+    });
+  }
+
   return {
     icg: ing,
     jcg: jng,
@@ -195,6 +204,16 @@ function runPath(A, nd, start = makeState(1, 1, 0)) {
   for (let step = 0; step < ns - 2; step += 1) {
     path.push(state);
 
+    if (DEBUG) {
+      console.log("STEP", step, {
+        icg: state.icg,
+        jcg: state.jcg,
+        ce: state.ce,
+        plotI: state.plotI,
+        plotJ: state.plotJ,
+      });
+    }
+
     const next = nextStep(state, A, nd);
 
     if (
@@ -203,6 +222,14 @@ function runPath(A, nd, start = makeState(1, 1, 0)) {
       next.ce === start.ce
     ) {
       path.push(next);
+
+      if (DEBUG) {
+        console.log("LOOP CLOSED", {
+          steps: path.length,
+          state: next,
+        });
+      }
+
       return {
         count: path.length,
         path,
@@ -273,6 +300,13 @@ function improveGates(A, F, nd, random) {
       }
     }
 
+    if (DEBUG) {
+      console.log("SCORE UPDATE", {
+        step,
+        bestScore,
+      });
+    }
+
     if (!improved) {
       break;
     }
@@ -307,15 +341,29 @@ export function buildSquareKolam({
   let best = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    if (DEBUG) {
+      console.group(`ATTEMPT ${attempt}`);
+    }
+
     const random = createRandom(`${seed}:${nd}:${attempt}`);
     const { A, F } = resetGateMatrix(nd);
 
     assignGates(A, F, random);
 
+    if (DEBUG) {
+      console.group("Gate Matrix");
+      console.table(A);
+      console.groupEnd();
+    }
+
     const candidate = improveGates(A, F, nd, random);
 
     if (!best || candidate.score > best.score) {
       best = candidate;
+    }
+
+    if (DEBUG) {
+      console.groupEnd();
     }
   }
 
