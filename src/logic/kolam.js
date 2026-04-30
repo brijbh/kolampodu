@@ -1,4 +1,4 @@
-import { DOT_SPACING } from "./grid";
+import { DOT_SPACING, getDot } from "./grid";
 
 const OPEN = 1;
 const CLOSED = 0;
@@ -8,7 +8,8 @@ const NS = 2 * (ND ** 2 + 1) + 5;
 const MAX_ATTEMPTS = 40;
 const MAX_FLIP_STEPS = 400;
 const TARGET_OPEN_RATIO = 0.55;
-const ARC_RADIUS = DOT_SPACING * 0.4;
+const ARC_RADIUS = DOT_SPACING * 0.5;
+const OFFSET = DOT_SPACING * 0.35;
 const solutionCache = new Map();
 
 function createRandom(pattern, attempt) {
@@ -389,16 +390,59 @@ function buildNotebookSolution(pattern) {
 // Convert to SVG segments
 // ----------------------
 
-function algorithmPointToSvg(plotI, plotJ, ND) {
-  const GRID_OFFSET = DOT_SPACING + (ND * 0);
+function mapToDotSpace(plotI, plotJ, pattern) {
+  const row = Math.round(plotI);
+  const col = Math.round(plotJ);
+
+  if (!pattern[row]) return null;
+  if (col < 0 || col >= pattern[row]) return null;
+
+  return getDot(pattern, row, col);
+}
+
+function getFallbackDot(plotI, plotJ, pattern) {
+  const row = Math.min(
+    Math.max(Math.round(plotI), 0),
+    Math.max(pattern.length - 1, 0),
+  );
+  const col = Math.min(
+    Math.max(Math.round(plotJ), 0),
+    Math.max((pattern[row] ?? 1) - 1, 0),
+  );
+
+  return getDot(pattern, row, col);
+}
+
+function algorithmPointToSvg(plotI, plotJ, pattern, prev, curr) {
+  const dot = mapToDotSpace(plotI, plotJ, pattern) ??
+    getFallbackDot(plotI, plotJ, pattern);
+
+  if (!prev || !curr) {
+    return dot;
+  }
+
+  const dx = curr.plotJ - prev.plotJ;
+  const dy = curr.plotI - prev.plotI;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = dx / len;
+  const ny = dy / len;
+  const px = -ny;
+  const py = nx;
 
   return {
-    x: GRID_OFFSET + (plotJ * DOT_SPACING),
-    y: GRID_OFFSET + (plotI * DOT_SPACING),
+    x: dot.x + px * OFFSET,
+    y: dot.y + py * OFFSET,
   };
 }
 
-function buildArcPath(path, ND) {
+function turnDirection(prev, curr) {
+  const dx = curr.plotJ - prev.plotJ;
+  const dy = curr.plotI - prev.plotI;
+
+  return dx - dy;
+}
+
+function buildArcPath(path, pattern) {
   if (path.length < 2) return "";
 
   let d = "";
@@ -409,37 +453,60 @@ function buildArcPath(path, ND) {
     const start = algorithmPointToSvg(
       prevState.plotI,
       prevState.plotJ,
-      ND,
+      pattern,
+      prevState,
+      curr,
     );
-    const point = algorithmPointToSvg(curr.plotI, curr.plotJ, ND);
+    const point = algorithmPointToSvg(
+      curr.plotI,
+      curr.plotJ,
+      pattern,
+      prevState,
+      curr,
+    );
+    const sweep = turnDirection(prevState, curr) > 0 ? 1 : 0;
 
     if (i === 1) {
       d += `M ${start.x} ${start.y}`;
     }
 
-    d += ` A ${ARC_RADIUS} ${ARC_RADIUS} 0 0 1 ${point.x} ${point.y}`;
+    d += ` A ${ARC_RADIUS} ${ARC_RADIUS} 0 0 ${sweep} ${point.x} ${point.y}`;
   }
 
   return d;
 }
 
-function buildDebugPoints(path, ND) {
-  return path.map((point) => algorithmPointToSvg(point.plotI, point.plotJ, ND));
+function buildDebugPoints(path, pattern) {
+  return path.map((point, index) => {
+    const prev = path[index - 1] ?? point;
+
+    return algorithmPointToSvg(point.plotI, point.plotJ, pattern, prev, point);
+  });
 }
 
-function buildSegments(path, ND) {
+function buildSegments(path, pattern) {
   if (path.length < 2) return [];
 
-  const start = algorithmPointToSvg(path[0].plotI, path[0].plotJ, ND);
+  const start = algorithmPointToSvg(
+    path[0].plotI,
+    path[0].plotJ,
+    pattern,
+    path[0],
+    path[1],
+  );
   const end = algorithmPointToSvg(
     path[path.length - 1].plotI,
     path[path.length - 1].plotJ,
-    ND,
+    pattern,
+    path[path.length - 2],
+    path[path.length - 1],
   );
   const control = algorithmPointToSvg(
     (path[0].plotI + path[Math.floor(path.length / 2)].plotI) / 2,
     (path[0].plotJ + path[Math.floor(path.length / 2)].plotJ) / 2,
-    ND,
+    pattern,
+    path[0],
+    path[Math.floor(path.length / 2)],
   );
 
   return [{
@@ -448,8 +515,8 @@ function buildSegments(path, ND) {
     end,
     control,
     command: "A",
-    path: buildArcPath(path, ND),
-    debugPoints: buildDebugPoints(path, ND),
+    path: buildArcPath(path, pattern),
+    debugPoints: buildDebugPoints(path, pattern),
   }];
 }
 
@@ -458,14 +525,14 @@ function buildSegments(path, ND) {
 // ----------------------
 
 export function buildKolamSegments(pattern) {
-  const cacheKey = "canonical-notebook-nd-5";
+  const cacheKey = `canonical-notebook-nd-5:${pattern.join("-")}`;
 
   if (solutionCache.has(cacheKey)) {
     return solutionCache.get(cacheKey);
   }
 
   const solution = buildNotebookSolution(pattern);
-  const segments = solution ? buildSegments(solution.result.path, ND) : [];
+  const segments = solution ? buildSegments(solution.result.path, pattern) : [];
   solutionCache.set(cacheKey, segments);
   return segments;
 }
