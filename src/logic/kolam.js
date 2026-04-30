@@ -8,6 +8,7 @@ const NS = 2 * (ND ** 2 + 1) + 5;
 const MAX_ATTEMPTS = 40;
 const MAX_FLIP_STEPS = 400;
 const TARGET_OPEN_RATIO = 0.55;
+const DOT_CLEARANCE = DOT_SPACING * 0.25;
 const solutionCache = new Map();
 
 function createRandom(pattern, attempt) {
@@ -191,9 +192,15 @@ function runPath(A, start) {
   let state = { ...start };
 
   for (let step = 0; step < NS - 2; step += 1) {
-    path.push(state);
-
     const next = nextStep(state, A, ND);
+    const steps = 2;
+
+    for (let t = 0; t < steps; t += 1) {
+      path.push({
+        plotI: state.plotI + (next.plotI - state.plotI) * (t / steps),
+        plotJ: state.plotJ + (next.plotJ - state.plotJ) * (t / steps),
+      });
+    }
 
     if (
       next.icg === start.icg &&
@@ -389,30 +396,75 @@ function buildNotebookSolution(pattern) {
 // ----------------------
 
 function algorithmPointToSvg(plotI, plotJ, ND) {
+  const GRID_OFFSET = DOT_SPACING * (ND / ND);
+
   return {
-    x: (plotJ + ND) * (DOT_SPACING / 2),
-    y: (plotI + ND) * (DOT_SPACING / 2),
+    x: GRID_OFFSET + (plotJ * DOT_SPACING),
+    y: GRID_OFFSET + (plotI * DOT_SPACING),
+  };
+}
+
+function nudgeControlPoint(point) {
+  const GRID_OFFSET = DOT_SPACING;
+  const dotX = GRID_OFFSET +
+    Math.round((point.x - GRID_OFFSET) / DOT_SPACING) * DOT_SPACING;
+  const dotY = GRID_OFFSET +
+    Math.round((point.y - GRID_OFFSET) / DOT_SPACING) * DOT_SPACING;
+  const dx = point.x - dotX;
+  const dy = point.y - dotY;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance >= DOT_CLEARANCE) {
+    return point;
+  }
+
+  if (distance === 0) {
+    return {
+      x: point.x + DOT_CLEARANCE,
+      y: point.y,
+    };
+  }
+
+  const scale = DOT_CLEARANCE / distance;
+
+  return {
+    x: dotX + dx * scale,
+    y: dotY + dy * scale,
   };
 }
 
 function buildSmoothPath(path, ND) {
-  if (!path.length) return "";
+  if (path.length < 2) return "";
 
   let d = "";
 
   for (let i = 0; i < path.length; i += 1) {
     const p = path[i];
-    const point = algorithmPointToSvg(p.plotI, p.plotJ, ND);
+    const curr = algorithmPointToSvg(p.plotI, p.plotJ, ND);
 
     if (i === 0) {
-      d += `M ${point.x} ${point.y}`;
+      d += `M ${curr.x} ${curr.y}`;
       continue;
     }
 
-    d += ` L ${point.x} ${point.y}`;
+    const prev = algorithmPointToSvg(
+      path[i - 1].plotI,
+      path[i - 1].plotJ,
+      ND,
+    );
+    const control = nudgeControlPoint(prev);
+
+    const midX = (prev.x + curr.x) / 2;
+    const midY = (prev.y + curr.y) / 2;
+
+    d += ` Q ${control.x} ${control.y}, ${midX} ${midY}`;
   }
 
   return d;
+}
+
+function buildDebugPoints(path, ND) {
+  return path.map((point) => algorithmPointToSvg(point.plotI, point.plotJ, ND));
 }
 
 function buildSegments(path, ND) {
@@ -437,6 +489,7 @@ function buildSegments(path, ND) {
     control,
     command: "Q",
     path: buildSmoothPath(path, ND),
+    debugPoints: buildDebugPoints(path, ND),
   }];
 }
 

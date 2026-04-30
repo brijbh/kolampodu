@@ -126,6 +126,17 @@ export default function KolamCanvas({ pattern, path, segments, progress, showHin
               stroke="transparent"
             />
           ))}
+          {segments.flatMap((segment) => (
+            segment.debugPoints?.map((point, index) => (
+              <circle
+                key={`${segment.id}-debug-${index}`}
+                cx={point.x}
+                cy={point.y}
+                r={2}
+                fill="red"
+              />
+            )) ?? []
+          ))}
         </g>
       </svg>
     </div>
