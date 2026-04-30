@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 
+import AlkolamSandbox from "./components/AlkolamSandbox";
 import Header from "./components/Header";
-import KolamCanvas from "./components/KolamCanvas";
-import Controls from "./components/Controls";
+// import KolamCanvas from "./components/KolamCanvas";
+// import Controls from "./components/Controls";
 
-import { createKolamAnimation } from "./logic/animation";
-import { buildKolamPath, buildKolamSegments } from "./logic/kolam";
+// import { createKolamAnimation } from "./logic/animation";
+// import { buildKolamPath, buildKolamSegments } from "./logic/kolam";
 
 import "./styles/base.css";
 import "./styles/layout.css";
@@ -45,50 +46,50 @@ export default function App() {
   const shape = SHAPES.find(({ id }) => id === selectedShape) ?? SHAPES[0];
   const pattern = shape.pattern;
   const gridLabel = pattern.join(" - ");
-  const segments = useMemo(() => buildKolamSegments(pattern), [pattern]);
-  const path = useMemo(() => buildKolamPath(pattern), [pattern]);
-  const animationRef = useRef(null);
-  const [progress, setProgress] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [hasAnimationStarted, setHasAnimationStarted] = useState(false);
+  // const segments = useMemo(() => buildKolamSegments(pattern), [pattern]);
+  // const path = useMemo(() => buildKolamPath(pattern), [pattern]);
+  // const animationRef = useRef(null);
+  // const [progress, setProgress] = useState(0);
+  // const [isPlaying, setIsPlaying] = useState(false);
+  // const [hasAnimationStarted, setHasAnimationStarted] = useState(false);
 
-  useEffect(() => {
-    animationRef.current = createKolamAnimation({
-      onProgress: setProgress,
-      onComplete: () => setIsPlaying(false),
-    });
+  // useEffect(() => {
+  //   animationRef.current = createKolamAnimation({
+  //     onProgress: setProgress,
+  //     onComplete: () => setIsPlaying(false),
+  //   });
 
-    return () => {
-      animationRef.current?.pause();
-    };
-  }, []);
+  //   return () => {
+  //     animationRef.current?.pause();
+  //   };
+  // }, []);
 
-  const handlePlay = () => {
-    if (animationRef.current?.progress >= 1) {
-      animationRef.current.reset();
-    }
+  // const handlePlay = () => {
+  //   if (animationRef.current?.progress >= 1) {
+  //     animationRef.current.reset();
+  //   }
 
-    animationRef.current?.start();
-    setIsPlaying(true);
-    setHasAnimationStarted(true);
-  };
+  //   animationRef.current?.start();
+  //   setIsPlaying(true);
+  //   setHasAnimationStarted(true);
+  // };
 
-  const handlePause = () => {
-    animationRef.current?.pause();
-    setIsPlaying(false);
-  };
+  // const handlePause = () => {
+  //   animationRef.current?.pause();
+  //   setIsPlaying(false);
+  // };
 
-  const handleReset = () => {
-    animationRef.current?.reset();
-    setIsPlaying(false);
-    setHasAnimationStarted(false);
-  };
+  // const handleReset = () => {
+  //   animationRef.current?.reset();
+  //   setIsPlaying(false);
+  //   setHasAnimationStarted(false);
+  // };
 
   const handleSelectShape = (shapeId) => {
     setSelectedShape(shapeId);
-    animationRef.current?.reset();
-    setIsPlaying(false);
-    setHasAnimationStarted(false);
+    // animationRef.current?.reset();
+    // setIsPlaying(false);
+    // setHasAnimationStarted(false);
   };
 
   return (
@@ -131,20 +132,21 @@ export default function App() {
             <span aria-hidden="true">⌄</span>
           </button>
         </section>
-        <KolamCanvas
+        <AlkolamSandbox />
+        {/* <KolamCanvas
           pattern={pattern}
           path={path}
           segments={segments}
           progress={progress}
           showHint={!hasAnimationStarted}
-        />
-        <Controls
+        /> */}
+        {/* <Controls
           isPlaying={isPlaying}
           progress={progress}
           onPlay={handlePlay}
           onPause={handlePause}
           onReset={handleReset}
-        />
+        /> */}
         <nav className="mobile-nav" aria-label="Primary">
           <a className="mobile-nav-item is-active" href="#home">
             <span aria-hidden="true">⌂</span>
