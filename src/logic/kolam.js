@@ -8,8 +8,7 @@ const NS = 2 * (ND ** 2 + 1) + 5;
 const MAX_ATTEMPTS = 40;
 const MAX_FLIP_STEPS = 400;
 const TARGET_OPEN_RATIO = 0.55;
-const ARC_RADIUS = DOT_SPACING * 0.5;
-const OFFSET = DOT_SPACING * 0.35;
+const ARC_RADIUS = DOT_SPACING * 0.3;
 const solutionCache = new Map();
 
 function createRandom(pattern, attempt) {
@@ -413,33 +412,57 @@ function getFallbackDot(plotI, plotJ, pattern) {
   return getDot(pattern, row, col);
 }
 
-function algorithmPointToSvg(plotI, plotJ, pattern, prev, curr) {
-  const dot = mapToDotSpace(plotI, plotJ, pattern) ??
+function algorithmPointToSvg(plotI, plotJ, pattern) {
+  return mapToDotSpace(plotI, plotJ, pattern) ??
     getFallbackDot(plotI, plotJ, pattern);
+}
 
-  if (!prev || !curr) {
-    return dot;
+function getClosestDot(plotI, plotJ, pattern) {
+  let best = null;
+  let minDist = Infinity;
+
+  for (let row = 0; row < pattern.length; row += 1) {
+    for (let col = 0; col < pattern[row]; col += 1) {
+      const dot = getDot(pattern, row, col);
+      const dx = dot.x - plotJ * DOT_SPACING;
+      const dy = dot.y - plotI * DOT_SPACING;
+      const dist = dx * dx + dy * dy;
+
+      if (dist < minDist) {
+        minDist = dist;
+        best = dot;
+      }
+    }
   }
 
-  const dx = curr.plotJ - prev.plotJ;
-  const dy = curr.plotI - prev.plotI;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const nx = dx / len;
-  const ny = dy / len;
-  const px = -ny;
-  const py = nx;
+  return best ?? getFallbackDot(plotI, plotJ, pattern);
+}
 
+function polarToCartesian(cx, cy, r, angle) {
   return {
-    x: dot.x + px * OFFSET,
-    y: dot.y + py * OFFSET,
+    x: cx + r * Math.cos(angle),
+    y: cy + r * Math.sin(angle),
   };
 }
 
-function turnDirection(prev, curr) {
-  const dx = curr.plotJ - prev.plotJ;
-  const dy = curr.plotI - prev.plotI;
+function describeArc(cx, cy, r, startAngle, endAngle) {
+  const end = polarToCartesian(cx, cy, r, startAngle);
+  const largeArc = Math.abs(endAngle - startAngle) > Math.PI ? 1 : 0;
 
-  return dx - dy;
+  return `A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y}`;
+}
+
+function plotPointToFlatSvg(point) {
+  return {
+    x: point.plotJ * DOT_SPACING,
+    y: point.plotI * DOT_SPACING,
+  };
+}
+
+function angleToDot(point, dot) {
+  const flatPoint = plotPointToFlatSvg(point);
+
+  return Math.atan2(flatPoint.y - dot.y, flatPoint.x - dot.x);
 }
 
 function buildArcPath(path, pattern) {
@@ -450,27 +473,16 @@ function buildArcPath(path, pattern) {
   for (let i = 1; i < path.length; i += 1) {
     const prevState = path[i - 1];
     const curr = path[i];
-    const start = algorithmPointToSvg(
-      prevState.plotI,
-      prevState.plotJ,
-      pattern,
-      prevState,
-      curr,
-    );
-    const point = algorithmPointToSvg(
-      curr.plotI,
-      curr.plotJ,
-      pattern,
-      prevState,
-      curr,
-    );
-    const sweep = turnDirection(prevState, curr) > 0 ? 1 : 0;
+    const dot = getClosestDot(curr.plotI, curr.plotJ, pattern);
+    const startAngle = angleToDot(prevState, dot);
+    const endAngle = angleToDot(curr, dot);
+    const start = polarToCartesian(dot.x, dot.y, ARC_RADIUS, endAngle);
 
     if (i === 1) {
       d += `M ${start.x} ${start.y}`;
     }
 
-    d += ` A ${ARC_RADIUS} ${ARC_RADIUS} 0 0 ${sweep} ${point.x} ${point.y}`;
+    d += ` ${describeArc(dot.x, dot.y, ARC_RADIUS, startAngle, endAngle)}`;
   }
 
   return d;
