@@ -58,6 +58,15 @@ export default function AlkolamSandbox() {
             className="dot"
           />
         ))}
+        {kolam.pathPoints.map((point, index) => (
+          <circle
+            key={`path-point-${index}`}
+            cx={point.x}
+            cy={point.y}
+            r="2"
+            fill="red"
+          />
+        ))}
       </svg>
 
       <dl className="alkolam-debug">

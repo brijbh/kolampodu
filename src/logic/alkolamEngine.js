@@ -286,9 +286,11 @@ function improveGates(A, F, nd, random) {
 }
 
 export function toSvgPoint(plotI, plotJ, nd, spacing = DEFAULT_SPACING) {
+  const offset = (nd - 1) / 2;
+
   return {
-    x: plotJ * spacing,
-    y: plotI * spacing,
+    x: (plotJ + offset) * spacing,
+    y: (plotI + offset) * spacing,
   };
 }
 
