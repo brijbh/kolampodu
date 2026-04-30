@@ -103,77 +103,53 @@ function isGateActive(row, col, mask) {
   );
 }
 
-function getNearestDot(row, col, dots) {
-  let minDist = Infinity;
-  let nearest = null;
-
-  for (const dot of dots) {
-    const dist = Math.abs(dot.row - row) + Math.abs(dot.col - col);
-
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = dot;
-    }
-  }
-
-  return nearest;
-}
-
-function getClosedGateDirection(state, dots) {
-  const dot = getNearestDot(state.row, state.col, dots);
-
-  if (!dot) return state.dir;
-
-  const movingVertically = state.dir === 1 || state.dir === 3;
-
-  if (movingVertically) {
-    return dot.col < state.col ? 2 : 0;
-  }
-
-  return dot.row < state.row ? 3 : 1;
-}
-
 // ----------------------
 // Next State (CORE)
 // ----------------------
 
-function nextState(state, gates, mask, dots) {
-  const gate = isGateActive(state.row, state.col, mask)
-    ? gates[state.row][state.col]
-    : CLOSED;
-  let dir = state.dir;
-
-  if (gate === CLOSED) {
-    dir = getClosedGateDirection(state, dots);
-  }
-
-  const move = DIRS[dir];
-
-  const next = {
-    row: state.row + move.dr,
-    col: state.col + move.dc,
-    dir,
+function makeState(icg, jcg, ce) {
+  return {
+    icg,
+    jcg,
+    ce,
+    row: icg,
+    col: jcg,
+    dir: ce,
   };
+}
 
-  return isGateActive(next.row, next.col, mask) ? next : null;
+function nextStep(state, gates, mask) {
+  const gate = isGateActive(state.icg, state.jcg, mask)
+    ? gates[state.icg][state.jcg]
+    : CLOSED;
+  const ce = gate === OPEN ? state.ce : (state.ce + 1) % DIRS.length;
+  const move = DIRS[ce];
+
+  const next = makeState(
+    state.icg + move.dr,
+    state.jcg + move.dc,
+    ce,
+  );
+
+  return isGateActive(next.icg, next.jcg, mask) ? next : null;
 }
 
 // ----------------------
 // Simulation
 // ----------------------
 
-function simulate(gates, start, mask, dots) {
+function simulate(gates, start, mask) {
   const visited = new Set();
   const path = [];
 
   let state = { ...start };
 
   while (true) {
-    if (!isGateActive(state.row, state.col, mask)) {
+    if (!isGateActive(state.icg, state.jcg, mask)) {
       return { closed: false, path };
     }
 
-    const key = `${state.row}:${state.col}:${state.dir}`;
+    const key = `${state.icg}:${state.jcg}:${state.ce}`;
 
     if (visited.has(key)) {
       return { closed: false, path };
@@ -182,22 +158,22 @@ function simulate(gates, start, mask, dots) {
     visited.add(key);
     path.push(state);
 
-    const next = nextState(state, gates, mask, dots);
+    const next = nextStep(state, gates, mask);
 
     if (
       !next ||
-      next.row < 0 ||
-      next.col < 0 ||
-      next.row >= gates.length ||
-      next.col >= gates[0].length
+      next.icg < 0 ||
+      next.jcg < 0 ||
+      next.icg >= gates.length ||
+      next.jcg >= gates[0].length
     ) {
       return { closed: false, path };
     }
 
     if (
-      next.row === start.row &&
-      next.col === start.col &&
-      next.dir === start.dir
+      next.icg === start.icg &&
+      next.jcg === start.jcg &&
+      next.ce === start.ce
     ) {
       path.push(next);
       return { closed: true, path };
@@ -230,9 +206,9 @@ function isClosedLoop(result) {
     result?.closed
     && start
     && end
-    && end.row === start.row
-    && end.col === start.col
-    && end.dir === start.dir,
+    && end.icg === start.icg
+    && end.jcg === start.jcg
+    && end.ce === start.ce,
   );
 }
 
@@ -277,25 +253,61 @@ function isBetterLoop(candidate, current) {
   return candidate.length > current.length;
 }
 
-function findBestLoop(gates, dots, mask) {
-  let best = null;
+function findFirstActiveGate(mask) {
+  const rows = mask.length + 1;
+  const cols = Math.max(...mask.map((row) => row.length), 0) + 1;
 
-  for (let r = 0; r < gates.length; r++) {
-    for (let c = 0; c < gates[0].length; c++) {
-      if (!isGateActive(r, c, mask)) {
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      if (isGateActive(row, col, mask)) {
+        return makeState(row, col, 0);
+      }
+    }
+  }
+
+  return null;
+}
+
+function getStartStates(gates, mask) {
+  const first = findFirstActiveGate(mask);
+  const starts = [];
+
+  if (first) {
+    for (let dir = 0; dir < DIRS.length; dir += 1) {
+      starts.push(makeState(first.icg, first.jcg, dir));
+    }
+  }
+
+  for (let row = 0; row < gates.length; row += 1) {
+    for (let col = 0; col < gates[0].length; col += 1) {
+      if (!isGateActive(row, col, mask)) {
         continue;
       }
 
-      for (let d = 0; d < 4; d++) {
-        const candidate = evaluateLoop(
-          simulate(gates, { row: r, col: c, dir: d }, mask, dots),
-          dots,
-        );
-
-        if (isBetterLoop(candidate, best)) {
-          best = candidate;
+      for (let dir = 0; dir < DIRS.length; dir += 1) {
+        if (first && row === first.icg && col === first.jcg) {
+          continue;
         }
+
+        starts.push(makeState(row, col, dir));
       }
+    }
+  }
+
+  return starts;
+}
+
+function findBestLoop(gates, dots, mask) {
+  let best = null;
+
+  for (const start of getStartStates(gates, mask)) {
+    const candidate = evaluateLoop(
+      simulate(gates, start, mask),
+      dots,
+    );
+
+    if (isBetterLoop(candidate, best)) {
+      best = candidate;
     }
   }
 
@@ -325,10 +337,10 @@ function restoreGate(gates, flip) {
 // Convert to SVG segments
 // ----------------------
 
-function gatePoint(row, col) {
+function toSVG(plotI, plotJ) {
   return {
-    x: (col - 0.5) * DOT_SPACING,
-    y: (row - 0.5) * DOT_SPACING,
+    x: (plotJ - 0.5) * DOT_SPACING,
+    y: (plotI - 0.5) * DOT_SPACING,
   };
 }
 
@@ -341,7 +353,7 @@ function buildSmoothPath(path) {
     const p = path[i];
     const prev = path[i - 1];
     const next = path[i + 1] ?? path[1];
-    const point = gatePoint(p.row, p.col);
+    const point = toSVG(p.icg, p.jcg);
 
     if (i === 0) {
       d += `M ${point.x} ${point.y}`;
@@ -349,8 +361,8 @@ function buildSmoothPath(path) {
     }
 
     if (prev && next) {
-      const prevPoint = gatePoint(prev.row, prev.col);
-      const nextPoint = gatePoint(next.row, next.col);
+      const prevPoint = toSVG(prev.icg, prev.jcg);
+      const nextPoint = toSVG(next.icg, next.jcg);
 
       const cx = (prevPoint.x + nextPoint.x) / 2;
       const cy = (prevPoint.y + nextPoint.y) / 2;
@@ -365,11 +377,11 @@ function buildSmoothPath(path) {
 function buildSegments(path) {
   if (path.length < 2) return [];
 
-  const start = gatePoint(path[0].row, path[0].col);
-  const end = gatePoint(path[path.length - 1].row, path[path.length - 1].col);
-  const control = gatePoint(
-    (path[0].row + path[Math.floor(path.length / 2)].row) / 2,
-    (path[0].col + path[Math.floor(path.length / 2)].col) / 2,
+  const start = toSVG(path[0].icg, path[0].jcg);
+  const end = toSVG(path[path.length - 1].icg, path[path.length - 1].jcg);
+  const control = toSVG(
+    (path[0].icg + path[Math.floor(path.length / 2)].icg) / 2,
+    (path[0].jcg + path[Math.floor(path.length / 2)].jcg) / 2,
   );
 
   return [{
