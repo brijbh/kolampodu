@@ -220,6 +220,7 @@ export function getDotMaterial(dot, leadingPoint) {
 
 export function createKolamAnimation({
   duration = DEFAULT_DURATION,
+  speedMultiplier = 1,
   startDelay = DEFAULT_START_DELAY,
   onProgress = () => {},
   onComplete = () => {},
@@ -229,7 +230,7 @@ export function createKolamAnimation({
   clearDelay = globalThis.clearTimeout,
   now = () => globalThis.performance.now(),
 } = {}) {
-  const totalDuration = Math.max(1, duration);
+  let currentDuration = Math.max(1, duration / speedMultiplier);
   const delay = Math.max(0, startDelay);
   let frameId = null;
   let delayId = null;
@@ -257,7 +258,7 @@ export function createKolamAnimation({
 
   const tick = (time) => {
     const elapsed = elapsedBeforeStart + Math.max(0, time - startedAt);
-    const rawProgress = clampProgress(elapsed / totalDuration);
+    const rawProgress = clampProgress(elapsed / currentDuration);
 
     setProgress(rawProgress);
 
@@ -268,7 +269,7 @@ export function createKolamAnimation({
 
     running = false;
     frameId = null;
-    elapsedBeforeStart = totalDuration;
+    elapsedBeforeStart = currentDuration;
     onComplete();
   };
 
@@ -301,7 +302,7 @@ export function createKolamAnimation({
     }
 
     elapsedBeforeStart += Math.max(0, now() - startedAt);
-    setProgress(elapsedBeforeStart / totalDuration);
+    setProgress(elapsedBeforeStart / currentDuration);
     running = false;
     stopFrame();
     return progress;
@@ -315,10 +316,52 @@ export function createKolamAnimation({
     return progress;
   };
 
+  const updateOptions = (options) => {
+    if (options.speedMultiplier !== undefined || options.duration !== undefined) {
+      const newDuration = (options.duration ?? duration) / (options.speedMultiplier ?? speedMultiplier);
+      const ratio = newDuration / currentDuration;
+      
+      // Adjust elapsedBeforeStart and startedAt to maintain progress
+      elapsedBeforeStart *= ratio;
+      if (running) {
+        startedAt = now() - (progress * newDuration - elapsedBeforeStart);
+      }
+      currentDuration = newDuration;
+    }
+  };
+
+  const stepForward = (segments, segmentLengths, dots) => {
+    if (running) return progress;
+
+    const timings = getSegmentTimings(segments, {
+      duration: currentDuration,
+      segmentLengths,
+      dots,
+    });
+
+    const activeIndex = timings.findIndex(({ start, end }) => {
+      const elapsed = progress * currentDuration;
+      return elapsed >= start && elapsed < end;
+    });
+
+    let targetProgress;
+    if (activeIndex === -1) {
+      targetProgress = timings[0]?.end / currentDuration || 1;
+    } else {
+      targetProgress = timings[activeIndex + 1]?.end / currentDuration || 1;
+    }
+
+    setProgress(targetProgress);
+    elapsedBeforeStart = targetProgress * currentDuration;
+    return progress;
+  };
+
   return {
     start,
     pause,
     reset,
+    updateOptions,
+    stepForward,
     get progress() {
       return progress;
     },

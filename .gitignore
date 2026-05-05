@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.aider*
+screenshots/
+src/logic/*.bak
+src/logic/*.new
+src/logic/*.new2

@@ -2,11 +2,24 @@
   --bg: #fbf5e8;
   --panel: #fff8eb;
   --surface: #fffaf1;
-  --dot: #b6aa9a;
+  --dot: #8a7b6c;
   --line: #15120f;
   --text: #332016;
   --muted: #8a7b6c;
   --border: #e6d8bf;
   --accent: #70451f;
   --accent-dark: #4a2b14;
+}
+
+:root[data-theme="dark"] {
+  --bg: #12100e;
+  --panel: #1a1614;
+  --surface: #241f1c;
+  --dot: #5a4f45;
+  --line: #f5ede4;
+  --text: #e6d8bf;
+  --muted: #9c8b7c;
+  --border: #3d342d;
+  --accent: #b07e53;
+  --accent-dark: #8d5c36;
 }
